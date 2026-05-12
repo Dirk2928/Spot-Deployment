@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login - Your App</title>
+<link rel="stylesheet" href="login.css">
+</head>
+<body>
+<div class="left">
+  <div>
+    <a class="about-btn" href="about_us.html">ABOUT US</a>
+  </div>
+  <div>
+    <h1>Hello, Welcome!</h1>
+    <div class="tagline">Helping you choose the perfect business location through smart data analysis.</div>
+  </div>
+  <div class="footer">© 2026 SPOT. All rights reserved.</div>
+</div>
+
+<div class="right">
+
+  <!-- LOGIN FORM -->
+  <div id="login-form" class="form-box">
+    <img src="Spot.png" alt="Logo" class="logo">
+    <h2>LOGIN TO YOUR ACCOUNT</h2>
+    <div class="note">Don't have an account? <a onclick="showRegister()">Sign up</a></div>
+    <label>Username</label>
+    <input type="text" id="login-username" placeholder="Enter your username">
+    <label>Password</label>
+    <input type="password" id="login-password" placeholder="Enter your password">
+    <button onclick="login()">Login</button>
+    <div class="Forgot-Pass"><a onclick="showForgotPassword()">Forgot Password?</a></div>
+  </div>
+
+  <!-- REGISTER FORM -->
+  <div id="register-form" class="form-box" style="display: none;">
+    <img src="Spot.png" alt="Logo" class="logo">
+    <h2>CREATE AN ACCOUNT</h2>
+    <div class="note">Already have an account? <a onclick="showLogin()">Sign in</a></div>
+
+    <label>Full Name</label>
+    <input type="text" id="reg-fullname" placeholder="Enter your full name">
+
+    <label>Email</label>
+    <input type="text" id="reg-email" placeholder="Enter your email">
+
+    <label>Username</label>
+    <input type="text" id="reg-username" placeholder="Choose a username">
+
+    <label>Password</label>
+    <input type="password" id="reg-password" placeholder="Create a password">
+    <div class="password-requirements" id="reg-password-requirements">
+      <p class="req" id="req-length">• At least 8 characters</p>
+      <p class="req" id="req-upper">• At least one uppercase letter</p>
+      <p class="req" id="req-lower">• At least one lowercase letter</p>
+      <p class="req" id="req-number">• At least one number</p>
+    </div>
+
+    <label>Affiliation</label>
+    <select id="affiliation" onchange="handleAffiliationChange()">
+      <option value="" disabled selected>Select your affiliation</option>
+      <option value="Entrepreneur">Entrepreneur</option>
+      <option value="Aspiring Entrepreneur">Aspiring Entrepreneur</option>
+    </select>
+
+    <!-- Industry dropdown for Entrepreneur -->
+    <div id="entrepreneur-industry-div" style="display:none; margin-top: 10px;">
+      <label>What industry do you belong?</label>
+      <select id="entrepreneur-industry" onchange="handleEntrepreneurIndustryChange()">
+        <option value="" disabled selected>Select your answer</option>
+        <option value="Food and Beverages">Food and Beverages</option>
+        <option value="Retail">Retail</option>
+        <option value="Personal Care and Services">Personal Care and Services</option>
+        <option value="Technology Digital Service">Technology Digital Service</option>
+        <option value="Wholesale & Import">Wholesale & Import</option>
+        <option value="Manufacturing">Manufacturing</option>
+        <option value="IT & Software">IT & Software</option>
+        <option value="Construction">Construction</option>
+        <option value="Education">Education</option>
+        <option value="Healthcare">Healthcare</option>
+        <option value="Logistics & Transport">Logistics & Transport</option>
+        <option value="Security Services">Security Services</option>
+        <option value="Legal & Consulting">Legal & Consulting</option>
+        <option value="Marketing & Advertising">Marketing & Advertising</option>
+        <option value="Admin & Management">Admin & Management</option>
+        <option value="General Services">General Services</option>
+        <option value="Others">Others</option>
+      </select>
+      <div id="entrepreneur-industry-other-div" style="display:none; margin-top: 8px;">
+        <label>Please specify your industry</label>
+        <input type="text" id="entrepreneur-industry-other" placeholder="Specify your industry">
+      </div>
+
+      <!-- NEW: Sub-category field for Entrepreneur -->
+      <div id="entrepreneur-subcategory-div" style="display:none; margin-top: 8px;">
+        <label>Sub-category</label>
+        <input type="text" id="entrepreneur-subcategory" placeholder="Type in your answer">
+      </div>
+
+      <!-- NEW: Recommendation checkbox for Entrepreneur -->
+      <div class="recommendation-checkbox-div" id="entrepreneur-rec-div" style="display:none;">
+        <label class="checkbox-label">
+          <input type="checkbox" id="entrepreneur-rec-checkbox" onchange="handleEntrepreneurRecChange()" checked>
+          Allow recommendations related to my industry
+        </label>
+        <p class="rec-general-note" id="entrepreneur-rec-note" style="display:none;">
+          Recommendations will be general. You can manually filter the industries you want recommendations on, once logged in.
+        </p>
+      </div>
+    </div>
+
+    <!-- Industry dropdown for Aspiring Entrepreneur -->
+    <div id="aspiring-industry-div" style="display:none; margin-top: 10px;">
+      <label>What industry are you interested in?</label>
+      <select id="aspiring-industry" onchange="handleAspiringIndustryChange()">
+        <option value="" disabled selected>Select your answer</option>
+        <option value="Food and Beverages">Food and Beverages</option>
+        <option value="Retail">Retail</option>
+        <option value="Personal Care and Services">Personal Care and Services</option>
+        <option value="Technology Digital Service">Technology Digital Service</option>
+        <option value="Wholesale & Import">Wholesale & Import</option>
+        <option value="Manufacturing">Manufacturing</option>
+        <option value="IT & Software">IT & Software</option>
+        <option value="BPO & Call Center">BPO & Call Center</option>
+        <option value="Construction">Construction</option>
+        <option value="Finance & Banking">Finance & Banking</option>
+        <option value="Education">Education</option>
+        <option value="Healthcare">Healthcare</option>
+        <option value="Logistics & Transport">Logistics & Transport</option>
+        <option value="Security Services">Security Services</option>
+        <option value="Legal & Consulting">Legal & Consulting</option>
+        <option value="Marketing & Advertising">Marketing & Advertising</option>
+        <option value="Admin & Management">Admin & Management</option>
+        <option value="General Services">General Services</option>
+        <option value="Others">Others</option>
+      </select>
+      <div id="aspiring-industry-other-div" style="display:none; margin-top: 8px;">
+        <label>Please specify your interest</label>
+        <input type="text" id="aspiring-industry-other" placeholder="Specify your interest">
+      </div>
+
+      <!-- NEW: Sub-category field for Aspiring Entrepreneur -->
+      <div id="aspiring-subcategory-div" style="display:none; margin-top: 8px;">
+        <label>Sub-category</label>
+        <input type="text" id="aspiring-subcategory" placeholder="Type in your answer">
+      </div>
+
+      <!-- NEW: Recommendation checkbox for Aspiring Entrepreneur -->
+      <div class="recommendation-checkbox-div" id="aspiring-rec-div" style="display:none;">
+        <label class="checkbox-label">
+          <input type="checkbox" id="aspiring-rec-checkbox" onchange="handleAspiringRecChange()" checked>
+          Allow recommendations related to my industry
+        </label>
+        <p class="rec-general-note" id="aspiring-rec-note" style="display:none;">
+          Recommendations will be general. You can manually filter the industries you want recommendations on, once logged in.
+        </p>
+      </div>
+    </div>
+
+    <button onclick="register()">Register</button>
+  </div>
+
+  <!-- VERIFICATION SECTION -->
+  <div id="verification-section" class="form-box" style="display: none;">
+    <img src="Spot.png" alt="Logo" class="logo">
+    <h2>VERIFY YOUR EMAIL</h2>
+    <div class="note">We sent a 6-digit code to your email</div>
+    <label>Verification Code</label>
+    <input type="text" id="verification-code-input" maxlength="6" placeholder="Enter 6-digit code">
+    <button onclick="verifyCode()">Verify Account</button>
+    <button onclick="resendVerificationCode()">Resend Code</button>
+    <button onclick="showRegister()">Back to Registration</button>
+  </div>
+
+  <!-- FORGOT PASSWORD SECTION -->
+  <div id="forgot-password-section" class="form-box" style="display: none;">
+    <img src="Spot.png" alt="Logo" class="logo">
+    <h2>RESET PASSWORD</h2>
+    <div class="note">Enter your email to reset your password</div>
+    <label>Email Address</label>
+    <input type="text" id="forgot-email" placeholder="Enter your registered email">
+    <button onclick="sendForgotCode()">Send Reset Code</button>
+    <button onclick="showLogin()">Back to Login</button>
+  </div>
+
+  <!-- FORGOT VERIFICATION SECTION -->
+  <div id="forgot-verification-section" class="form-box" style="display: none;">
+    <img src="Spot.png" alt="Logo" class="logo">
+    <h2>VERIFY RESET CODE</h2>
+    <div class="note">We sent a 6-digit code to your email</div>
+    <label>Verification Code</label>
+    <input type="text" id="forgot-code-input" maxlength="6" placeholder="Enter 6-digit code">
+    <button onclick="verifyForgotCode()">Verify Code</button>
+    <button onclick="showForgotPassword()">Back</button>
+  </div>
+
+  <!-- RESET PASSWORD SECTION -->
+  <div id="reset-password-section" class="form-box" style="display: none;">
+    <img src="Spot.png" alt="Logo" class="logo">
+    <h2>CREATE NEW PASSWORD</h2>
+    <div class="note">Enter your new password below</div>
+    <label>New Password</label>
+    <input type="password" id="new-password" placeholder="Enter new password">
+    <div class="password-requirements" id="reset-password-requirements">
+      <p class="req" id="reset-req-length">• At least 8 characters</p>
+      <p class="req" id="reset-req-upper">• At least one uppercase letter</p>
+      <p class="req" id="reset-req-lower">• At least one lowercase letter</p>
+      <p class="req" id="reset-req-number">• At least one number</p>
+    </div>
+    <label>Confirm Password</label>
+    <input type="password" id="confirm-password" placeholder="Confirm new password">
+    <button onclick="resetPassword()">Reset Password</button>
+    <button onclick="showLogin()">Back to Login</button>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="login.js"></script>
+</body>
+</html>

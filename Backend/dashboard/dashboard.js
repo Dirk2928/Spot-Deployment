@@ -247,6 +247,14 @@ async function reportLogSaved({ action, business_type, barangay, lat, lon }) {
   try {
     const latValue = (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
     const lonValue = (lon !== null && lon !== undefined && !isNaN(parseFloat(lon))) ? parseFloat(lon) : null;
+    reportPush('saved', {
+      at: reportNow(),
+      action: action || 'saved',
+      business_type: business_type || null,
+      barangay: barangay || null,
+      lat: latValue,
+      lon: lonValue
+    });
 
     console.log('Sending saved report:', { action, business_type, barangay, lat: latValue, lon: lonValue });
 
@@ -842,64 +850,57 @@ async function saveRowClickHandler(e) {
     // Find the saved location ID
     const savedLoc = savedLocations.find(l => l.businesses[0] === bizName && l.locationName === barangay);
     if (savedLoc && savedLoc.dbId) {
-      const confirmed = confirm(`Remove "${formatBizName(bizName)}" from saved locations?`);
-      if (confirmed) {
-        await deleteSavedRecommendationFromDB(savedLoc.dbId);
-        row.classList.remove('saved');
-        if (label) label.textContent = 'Save';
-        locSavedItems.delete(saveKey);
-        await fetchSavedRecommendations();
-        await reportLogSaved({
-          action: 'removed',
-          business_type: bizName,
-          barangay,
-          lat: currentClickLat,
-          lon: currentClickLng
-        });
-      }
+      await deleteSavedRecommendationFromDB(savedLoc.dbId);
+      row.classList.remove('saved');
+      if (label) label.textContent = 'Save';
+      locSavedItems.delete(saveKey);
+      await fetchSavedRecommendations();
+      await reportLogSaved({
+        action: 'removed',
+        business_type: bizName,
+        barangay,
+        lat: currentClickLat,
+        lon: currentClickLng
+      });
     }
     return;
   }
 
   // Save new recommendation
-  const confirmed = confirm(`Save "${formatBizName(bizName)}" to your saved locations?`);
-  if (confirmed) {
-    try {
-      const lat = currentClickLat || null;
-      const lon = currentClickLng || null;
+  try {
+    const lat = currentClickLat || null;
+    const lon = currentClickLng || null;
 
-      const response = await fetch('/api/saved-recommendations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          business_type: bizName,
-          barangay: barangay,
-          lat: lat,
-          lon: lon
-        })
+    const response = await fetch('/api/saved-recommendations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        business_type: bizName,
+        barangay: barangay,
+        lat: lat,
+        lon: lon
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.success || data.message === 'Already saved') {
+      row.classList.add('saved');
+      if (label) label.textContent = 'Saved';
+      locSavedItems.add(saveKey);
+      await fetchSavedRecommendations();
+      await reportLogSaved({
+        action: 'saved',
+        business_type: bizName,
+        barangay,
+        lat: currentClickLat,
+        lon: currentClickLng
       });
-
-      const data = await response.json();
-
-      if (data.success || data.message === 'Already saved') {
-        row.classList.add('saved');
-        if (label) label.textContent = 'Saved';
-        locSavedItems.add(saveKey);
-        await fetchSavedRecommendations();
-        await reportLogSaved({
-          action: 'saved',
-          business_type: bizName,
-          barangay,
-          lat: currentClickLat,
-          lon: currentClickLng
-        });
-      } else {
-        alert('Error: ' + (data.message || 'Failed to save'));
-      }
-    } catch (err) {
-      console.error('Error saving:', err);
-      alert('Could not save recommendation');
+    } else {
+      console.error('Failed to save recommendation:', data.message || 'Failed to save');
     }
+  } catch (err) {
+    console.error('Error saving:', err);
   }
 }
 

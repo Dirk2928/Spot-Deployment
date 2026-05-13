@@ -264,6 +264,9 @@ function requireAdminPage(req, res, next) {
 const debugRouteRateLimit = rateLimit({
   windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false
 });
+const reportRouteRateLimit = rateLimit({
+  windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false
+});
 
 const pendingVerifications = new Map();
 const pendingPasswordResets = new Map();
@@ -1890,11 +1893,11 @@ app.get("/api/debug-session", (req, res) => {
 // REPORT ROUTES - FIXED (using legendDB instead of pool)
 // =============================================
 
-app.get("/api/report/history", requireAuth, async (req, res) => {
+app.get("/api/report/history", reportRouteRateLimit, requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
 
-    const [searchRows, recRows, savedRows] = await Promise.all([
+    const [searchRows, recommendationRows, savedRows] = await Promise.all([
       legendDB.query(
         `SELECT query, source, lat, lon, created_at
          FROM search_pin_history
@@ -1930,11 +1933,11 @@ app.get("/api/report/history", requireAuth, async (req, res) => {
       lon: row.lon
     }));
 
-    const recommendations = (recRows[0] || []).map((row) => ({
+    const recommendations = (recommendationRows[0] || []).map((row) => ({
       at: row.created_at,
       idea: row.recommended_item_id || '',
       area: row.source || '',
-      source: row.source || '',
+      source: 'recommendation',
       lat: row.lat,
       lon: row.lon
     }));
@@ -1955,7 +1958,7 @@ app.get("/api/report/history", requireAuth, async (req, res) => {
   }
 });
 
-app.delete("/api/report/history", requireAuth, async (req, res) => {
+app.delete("/api/report/history", reportRouteRateLimit, requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
     await Promise.all([

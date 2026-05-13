@@ -514,7 +514,8 @@ function readLocalLogs(userId = null){
     if (!raw) continue;
     try {
       return normalizeLogs(JSON.parse(raw));
-    } catch {
+    } catch (err) {
+      console.warn('Failed to parse report logs:', err);
       return emptyLogs();
     }
   }

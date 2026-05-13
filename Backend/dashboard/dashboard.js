@@ -38,7 +38,7 @@ const BARANGAY_BOUNDS_MAP = {
   'bagong katipunan': { minLat: 14.5740, maxLat: 14.5840, minLon: 121.0620, maxLon: 121.0730 },
   'bambang': { minLat: 14.5640, maxLat: 14.5850, minLon: 121.0570, maxLon: 121.0790 },
   'buting': { minLat: 14.5620, maxLat: 14.5830, minLon: 121.0660, maxLon: 121.0880 },
-  'caniogan': { minLat: 14.5740, maxLat: 14.5820, minLon: 121.0830, maxLon: 121.0910 },
+  'caniogan': { minLat: 14.5740, maxLat: 14.5840, minLon: 121.0620, maxLon: 121.0730 },
   'dela paz': { minLat: 14.5780, maxLat: 14.6010, minLon: 121.0770, maxLon: 121.1010 },
   'kalawaan': { minLat: 14.5580, maxLat: 14.5790, minLon: 121.0670, maxLon: 121.0890 },
   'kapasigan': { minLat: 14.5590, maxLat: 14.5800, minLon: 121.0620, maxLon: 121.0840 },
@@ -190,59 +190,91 @@ function reportCurrentFiltersSnapshot() {
 }
 
 async function reportLogSearchOrPin({ source, locationName, lat, lon }) {
-  const f = reportCurrentFiltersSnapshot();
-  reportPush('searchPins', {
-    at: reportNow(), source,
-    locationName: locationName || null,
-    lat: lat ?? null, lon: lon ?? null, filters: f
-  });
   try {
-    await fetch('/api/report/search-pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: locationName || null, source: source || 'map', lat: lat ?? null, lon: lon ?? null })
-    });
-  } catch (e) { console.warn('DB report search-pin failed:', e); }
-}
+    const latValue = (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
+    const lonValue = (lon !== null && lon !== undefined && !isNaN(parseFloat(lon))) ? parseFloat(lon) : null;
 
-async function reportLogRecommendation({ idea, area, pinCount, lat, lon }) {
-  const f = reportCurrentFiltersSnapshot();
-  reportPush('recommendations', {
-    at: reportNow(), idea, area: area || null,
-    pinCount: pinCount ?? null, lat: lat ?? null, lon: lon ?? null, filters: f
-  });
-  try {
-    const latValue = lat !== null && lat !== undefined && !isNaN(parseFloat(lat)) ? parseFloat(lat) : null;
-    const lonValue = lon !== null && lon !== undefined && !isNaN(parseFloat(lon)) ? parseFloat(lon) : null;
-    console.log('Sending recommendation report:', { idea, area, lat: latValue, lon: lonValue });
-    await fetch('/api/report/recommendation', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idea: idea || null, area: area || null, lat: latValue, lon: lonValue })
-    });
-  } catch (e) { console.warn('DB report recommendation failed:', e); }
-}
+    console.log('Sending search-pin report:', { source, locationName, lat: latValue, lon: lonValue });
 
-async function reportLogSaved({ action, business_type, barangay, lat, lon }) {
-  reportPush('saved', {
-    at: reportNow(), action, business_type,
-    barangay: barangay || null, lat: lat ?? null, lon: lon ?? null
-  });
-  try {
-    await fetch('/api/report/saved', {
+    const response = await fetch('/api/report/search-pin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        action: action || 'saved', business_type: business_type || null,
-        barangay: barangay || null, lat: lat ?? null, lon: lon ?? null
+        query: locationName || null,
+        source: source || 'map',
+        lat: latValue,
+        lon: lonValue
       })
     });
-  } catch (e) { console.warn('DB report saved failed:', e); }
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Search-pin report failed:', error);
+    }
+  } catch (e) {
+    console.warn('DB report search-pin failed:', e);
+  }
+}
+
+async function reportLogRecommendation({ idea, area, pinCount, lat, lon }) {
+  try {
+    const latValue = (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
+    const lonValue = (lon !== null && lon !== undefined && !isNaN(parseFloat(lon))) ? parseFloat(lon) : null;
+
+    console.log('Sending recommendation report:', { idea, area, lat: latValue, lon: lonValue });
+
+    const response = await fetch('/api/report/recommendation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        idea: idea || null,
+        area: area || null,
+        lat: latValue,
+        lon: lonValue
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Recommendation report failed:', error);
+    }
+  } catch (e) {
+    console.warn('DB report recommendation failed:', e);
+  }
+}
+
+async function reportLogSaved({ action, business_type, barangay, lat, lon }) {
+  try {
+    const latValue = (lat !== null && lat !== undefined && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
+    const lonValue = (lon !== null && lon !== undefined && !isNaN(parseFloat(lon))) ? parseFloat(lon) : null;
+
+    console.log('Sending saved report:', { action, business_type, barangay, lat: latValue, lon: lonValue });
+
+    const response = await fetch('/api/report/saved', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: action || 'saved',
+        business_type: business_type || null,
+        barangay: barangay || null,
+        lat: latValue,
+        lon: lonValue
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error('Saved report failed:', error);
+    }
+
+    return response.ok;
+  } catch (e) {
+    console.warn('DB report saved failed:', e);
+    return false;
+  }
 }
 
 // ─── MAP SETUP ───────────────────────────────────────────────────────────────
-// NOTE: `map` is declared here but initialized inside DOMContentLoaded below
-// so that the #map DOM element is guaranteed to exist before Leaflet touches it.
 let map;
 
 const PASIG_BOUNDS = {
@@ -322,34 +354,34 @@ function zoomToBarangay(barangayName) {
   }
 
   const CENTROID_FALLBACK_CLIENT = {
-    'bagong ilog':       [14.5740, 121.0860],
-    'bagong katipunan':  [14.5572, 121.0750],
-    'bambang':           [14.5740, 121.0680],
-    'buting':            [14.5720, 121.0770],
-    'caniogan':          [14.5790, 121.0870],
-    'dela paz':          [14.5900, 121.0890],
-    'kalawaan':          [14.5690, 121.0780],
-    'kapasigan':         [14.5700, 121.0730],
-    'kapitolyo':         [14.5830, 121.0630],
-    'malinao':           [14.5810, 121.0890],
-    'manggahan':         [14.5940, 121.0970],
-    'maybunga':          [14.5770, 121.0920],
-    'oranbo':            [14.5790, 121.0780],
-    'palatiw':           [14.5820, 121.0960],
-    'pinagbuhatan':      [14.5610, 121.0940],
-    'pineda':            [14.5670, 121.0650],
-    'rosario':           [14.5861, 121.0846],
-    'sagad':             [14.5590, 121.0870],
-    'san antonio':       [14.5890, 121.0870],
-    'san joaquin':       [14.5521, 121.0798],
-    'san jose':          [14.5594, 121.0734],
-    'san miguel':        [14.5658, 121.0855],
-    'san nicolas':       [14.5643, 121.0798],
-    'santa lucia':       [14.5843, 121.1013],
-    'santa rosa':        [14.5589, 121.0729],
-    'santolan':          [14.5950, 121.0800],
-    'sumilang':          [14.5750, 121.0840],
-    'ugong':             [14.5830, 121.0620],
+    'bagong ilog': [14.5740, 121.0860],
+    'bagong katipunan': [14.5572, 121.0750],
+    'bambang': [14.5740, 121.0680],
+    'buting': [14.5720, 121.0770],
+    'caniogan': [14.5790, 121.0870],
+    'dela paz': [14.5900, 121.0890],
+    'kalawaan': [14.5690, 121.0780],
+    'kapasigan': [14.5700, 121.0730],
+    'kapitolyo': [14.5830, 121.0630],
+    'malinao': [14.5810, 121.0890],
+    'manggahan': [14.5940, 121.0970],
+    'maybunga': [14.5770, 121.0920],
+    'oranbo': [14.5790, 121.0780],
+    'palatiw': [14.5820, 121.0960],
+    'pinagbuhatan': [14.5610, 121.0940],
+    'pineda': [14.5670, 121.0650],
+    'rosario': [14.5861, 121.0846],
+    'sagad': [14.5590, 121.0870],
+    'san antonio': [14.5890, 121.0870],
+    'san joaquin': [14.5521, 121.0798],
+    'san jose': [14.5594, 121.0734],
+    'san miguel': [14.5658, 121.0855],
+    'san nicolas': [14.5643, 121.0798],
+    'santa lucia': [14.5843, 121.1013],
+    'santa rosa': [14.5589, 121.0729],
+    'santolan': [14.5950, 121.0800],
+    'sumilang': [14.5750, 121.0840],
+    'ugong': [14.5830, 121.0620],
   };
 
   const key = barangayName.toLowerCase().trim();
@@ -661,7 +693,6 @@ function plotLocations(recs) {
         `<span style="color:#2e7d32;">Suitability: ${Math.round((rec.suitability_score || 0) * 100)}%</span>`
       );
 
-    // FIX: use void or .catch() so the non-awaited async call doesn't cause issues
     marker.on('click', () => {
       reportLogRecommendation({
         idea: rec.business_type || activeIdeaName,
@@ -808,36 +839,71 @@ async function saveRowClickHandler(e) {
   const isCurrentlySaved = row.classList.contains('saved');
 
   if (isCurrentlySaved) {
-    const msg = document.getElementById('unsave-msg');
-    if (msg) msg.textContent = `Remove "${formatBizName(bizName)}" from saved?`;
-    unsavePendingCallback = async () => {
-      const savedLoc = savedLocations.find(l => l.businesses[0] === bizName && l.locationName === barangay);
-      if (savedLoc && savedLoc.dbId) await deleteSavedRecommendationFromDB(savedLoc.dbId);
-      row.classList.remove('saved');
-      if (label) label.textContent = 'Save';
-      locSavedItems.delete(saveKey);
-      await fetchSavedRecommendations();
-      await reportLogSaved({ action: 'removed', business_type: bizName, barangay, lat: currentClickLat, lon: currentClickLng });
-    };
-    document.getElementById('unsave-modal')?.classList.add('open');
+    // Find the saved location ID
+    const savedLoc = savedLocations.find(l => l.businesses[0] === bizName && l.locationName === barangay);
+    if (savedLoc && savedLoc.dbId) {
+      const confirmed = confirm(`Remove "${formatBizName(bizName)}" from saved locations?`);
+      if (confirmed) {
+        await deleteSavedRecommendationFromDB(savedLoc.dbId);
+        row.classList.remove('saved');
+        if (label) label.textContent = 'Save';
+        locSavedItems.delete(saveKey);
+        await fetchSavedRecommendations();
+        await reportLogSaved({
+          action: 'removed',
+          business_type: bizName,
+          barangay,
+          lat: currentClickLat,
+          lon: currentClickLng
+        });
+      }
+    }
     return;
   }
 
-  const lat = currentClickLat || null;
-  const lon = currentClickLng || null;
-  const result = await saveRecommendationToDB(bizName, barangay, lat, lon);
-  if (result.success || result.message === 'Already saved') {
-    row.classList.add('saved');
-    if (label) label.textContent = 'Saved';
-    locSavedItems.add(saveKey);
-    await fetchSavedRecommendations();
-    await reportLogSaved({ action: 'saved', business_type: bizName, barangay, lat, lon });
+  // Save new recommendation
+  const confirmed = confirm(`Save "${formatBizName(bizName)}" to your saved locations?`);
+  if (confirmed) {
+    try {
+      const lat = currentClickLat || null;
+      const lon = currentClickLng || null;
+
+      const response = await fetch('/api/saved-recommendations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business_type: bizName,
+          barangay: barangay,
+          lat: lat,
+          lon: lon
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success || data.message === 'Already saved') {
+        row.classList.add('saved');
+        if (label) label.textContent = 'Saved';
+        locSavedItems.add(saveKey);
+        await fetchSavedRecommendations();
+        await reportLogSaved({
+          action: 'saved',
+          business_type: bizName,
+          barangay,
+          lat: currentClickLat,
+          lon: currentClickLng
+        });
+      } else {
+        alert('Error: ' + (data.message || 'Failed to save'));
+      }
+    } catch (err) {
+      console.error('Error saving:', err);
+      alert('Could not save recommendation');
+    }
   }
 }
 
 // ─── RENDER IDEA LIST ─────────────────────────────────────────────────────────
-// FIX: The entire function is now async, and the forEach callbacks are async too.
-// The auto-select at the bottom is now properly awaited via an IIFE.
 function renderIdeaList({ names, barangays, prefs, allowPins }) {
   if (typeof barangays === 'string') barangays = barangays ? [barangays] : null;
 
@@ -865,7 +931,6 @@ function renderIdeaList({ names, barangays, prefs, allowPins }) {
 
   attachSaveRowListeners();
 
-  // FIX: extracted as a named async function so it can be properly awaited
   const onIdeaSelect = async (el) => {
     const idea = el.dataset.idea;
     const idx = parseInt(el.dataset.idx);
@@ -904,7 +969,6 @@ function renderIdeaList({ names, barangays, prefs, allowPins }) {
     plotLocations(allRecs);
   };
 
-  // FIX: forEach callback is now async so await works inside it
   listEl.querySelectorAll('.rec-item').forEach(el => {
     el.addEventListener('click', async (e) => {
       if (e.target.closest('.save-row')) return;
@@ -915,7 +979,7 @@ function renderIdeaList({ names, barangays, prefs, allowPins }) {
 
   markSavedInCurrentList();
 
-  // FIX: auto-select first item using a self-executing async IIFE so await works
+  // Auto-select first item
   if (allowPins && activeIdeaIdx === -1) {
     const firstItem = listEl.querySelector('.rec-item');
     if (firstItem) {
@@ -1135,34 +1199,34 @@ function showPasigToast(msg) {
 
 // ─── VERIFIED BARANGAY CENTERS ────────────────────────────────────────────────
 const VERIFIED_BARANGAY_CENTERS = {
-  'Bagong Ilog':       [14.5740, 121.0860],
-  'Bagong Katipunan':  [14.5572, 121.0750],
-  'Bambang':           [14.5740, 121.0680],
-  'Buting':            [14.5720, 121.0770],
-  'Caniogan':          [14.5790, 121.0870],
-  'Dela Paz':          [14.5900, 121.0890],
-  'Kalawaan':          [14.5690, 121.0780],
-  'Kapasigan':         [14.5700, 121.0730],
-  'Kapitolyo':         [14.5830, 121.0630],
-  'Malinao':           [14.5810, 121.0890],
-  'Manggahan':         [14.5940, 121.0970],
-  'Maybunga':          [14.5770, 121.0920],
-  'Oranbo':            [14.5790, 121.0780],
-  'Palatiw':           [14.5820, 121.0960],
-  'Pinagbuhatan':      [14.5610, 121.0940],
-  'Pineda':            [14.5670, 121.0650],
-  'Rosario':           [14.5861, 121.0846],
-  'Sagad':             [14.5590, 121.0870],
-  'San Antonio':       [14.5890, 121.0870],
-  'San Joaquin':       [14.5521, 121.0798],
-  'San Jose':          [14.5594, 121.0734],
-  'San Miguel':        [14.5658, 121.0855],
-  'San Nicolas':       [14.5643, 121.0798],
-  'Santa Lucia':       [14.5843, 121.1013],
-  'Santa Rosa':        [14.5589, 121.0729],
-  'Santolan':          [14.5950, 121.0800],
-  'Sumilang':          [14.5750, 121.0840],
-  'Ugong':             [14.5830, 121.0620]
+  'Bagong Ilog': [14.5740, 121.0860],
+  'Bagong Katipunan': [14.5572, 121.0750],
+  'Bambang': [14.5740, 121.0680],
+  'Buting': [14.5720, 121.0770],
+  'Caniogan': [14.5790, 121.0870],
+  'Dela Paz': [14.5900, 121.0890],
+  'Kalawaan': [14.5690, 121.0780],
+  'Kapasigan': [14.5700, 121.0730],
+  'Kapitolyo': [14.5830, 121.0630],
+  'Malinao': [14.5810, 121.0890],
+  'Manggahan': [14.5940, 121.0970],
+  'Maybunga': [14.5770, 121.0920],
+  'Oranbo': [14.5790, 121.0780],
+  'Palatiw': [14.5820, 121.0960],
+  'Pinagbuhatan': [14.5610, 121.0940],
+  'Pineda': [14.5670, 121.0650],
+  'Rosario': [14.5861, 121.0846],
+  'Sagad': [14.5590, 121.0870],
+  'San Antonio': [14.5890, 121.0870],
+  'San Joaquin': [14.5521, 121.0798],
+  'San Jose': [14.5594, 121.0734],
+  'San Miguel': [14.5658, 121.0855],
+  'San Nicolas': [14.5643, 121.0798],
+  'Santa Lucia': [14.5843, 121.1013],
+  'Santa Rosa': [14.5589, 121.0729],
+  'Santolan': [14.5950, 121.0800],
+  'Sumilang': [14.5750, 121.0840],
+  'Ugong': [14.5830, 121.0620]
 };
 
 // ─── HANDLE LOCATION SELECT ───────────────────────────────────────────────────
@@ -1443,6 +1507,13 @@ function promptUnsaveLocation(id) {
     if (loc.dbId) await deleteSavedRecommendationFromDB(loc.dbId);
     savedLocations = savedLocations.filter(l => l.id !== id);
     renderSavedPanel();
+    await reportLogSaved({
+      action: 'removed',
+      business_type: loc.businesses?.[0] || null,
+      barangay: loc.locationName || null,
+      lat: loc.lat || null,
+      lon: loc.lon || null
+    });
   };
   document.getElementById('unsave-modal')?.classList.add('open');
 }
@@ -1515,6 +1586,8 @@ async function loadAreaDemographics(barangay, businessLine) {
         demoHTML += `<li><strong>Population:</strong> ${demo.population ? demo.population.toLocaleString() : 'N/A'}</li>`;
         demoHTML += `<li><strong>Population Density:</strong> ${demo.population_density ? demo.population_density.toLocaleString() + ' per km²' : 'N/A'}</li>`;
         demoHTML += `<li><strong>Dominant Age Group:</strong> ${demo.highest_age_group || 'N/A'}</li>`;
+        const incomeMin = demo.avg_income_min ? '₱' + demo.avg_income_min.toLocaleString() : 'N/A';
+        const incomeMax
         const incomeMin = demo.avg_income_min ? '₱' + demo.avg_income_min.toLocaleString() : 'N/A';
         const incomeMax = demo.avg_income_max ? '₱' + demo.avg_income_max.toLocaleString() : 'N/A';
         const incomeRange = (demo.avg_income_min || demo.avg_income_max) ? `${incomeMin} – ${incomeMax}` : 'N/A';

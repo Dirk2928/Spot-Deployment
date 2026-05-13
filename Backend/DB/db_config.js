@@ -1,19 +1,26 @@
 const mysql = require("mysql2");
+require("dotenv").config();
 
+// Legend Database Pool (defaultdb on Aiven)
 const legendPool = mysql.createPool({
-    host: "localhost",
-    user: "root",
-    password: "",
-    database: "legendsss_db",
+    host: process.env.DB_HOST,
+    port: parseInt(process.env.DB_PORT),
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    ssl: { rejectUnauthorized: false },
     waitForConnections: true,
     connectionLimit: 10
 });
 
+// Geocoding Database Pool (geocoding_db on Aiven)
 const geoPool = mysql.createPool({
-    host: "localhost",
-    user: "root",
-    password: "",
-    database: "geocoding_db",
+    host: process.env.GEO_DB_HOST,
+    port: parseInt(process.env.GEO_DB_PORT),
+    user: process.env.GEO_DB_USER,
+    password: process.env.GEO_DB_PASSWORD,
+    database: process.env.GEO_DB_NAME,
+    ssl: { rejectUnauthorized: false },
     waitForConnections: true,
     connectionLimit: 10
 });
@@ -24,11 +31,11 @@ const geoDB = geoPool.promise();
 async function testConnection() {
     try {
         await legendDB.query("SELECT 1");
+        console.log("✅ Connected to legendsss_db (defaultdb) on Aiven");
         await geoDB.query("SELECT 1");
-        console.log("Connected to legendsss_db");
-        console.log("Connected to geocoding_db");
+        console.log("✅ Connected to geocoding_db on Aiven");
     } catch (err) {
-        console.error("DB ERROR:", err.message);
+        console.error("❌ DB ERROR:", err.message);
     }
 }
 

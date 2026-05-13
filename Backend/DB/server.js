@@ -21,8 +21,11 @@ app.use(session({
   cookie: { secure: false }
 }));
 
+// ---------------
+// PATH CONFIGURATIONS - UPDATE THESE TO MATCH YOUR FOLDER STRUCTURE
+// ---------------
 const frontendPath = path.join(__dirname, "login");
-const dashboardPath = path.join(__dirname, "..", "dashboard");
+const dashboardPath = path.join(__dirname, "..", "Dashboard");
 const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
 
 const PASIG_BOUNDS = {
@@ -34,7 +37,6 @@ const PASIG_BOUNDS = {
 const IDEA_PIN_MIN_GAP_METERS = 200;
 
 // ─── BARANGAY BOUNDING BOXES ──────────────────────────────────────────────────
-// FINAL CORRECTED BARANGAY_BOUNDS for server.js
 const BARANGAY_BOUNDS = {
   'bagong ilog':      { minLat: 14.570, maxLat: 14.578, minLon: 121.082, maxLon: 121.089 },
   'bagong katipunan': { minLat: 14.574, maxLat: 14.584, minLon: 121.062, maxLon: 121.073 },
@@ -65,7 +67,7 @@ const BARANGAY_BOUNDS = {
   'sumilang':         { minLat: 14.565, maxLat: 14.580, minLon: 121.076, maxLon: 121.091 },
   'ugong':            { minLat: 14.573, maxLat: 14.588, minLon: 121.057, maxLon: 121.069 },
 };
-// ─── CENTROID FALLBACK MAP ────────────────────────────────────────────────────
+
 const CENTROID_FALLBACK = {
   'bagong ilog':      { lat: 14.5731, lon: 121.0857 },
   'bagong katipunan': { lat: 14.5939, lon: 121.0832 },
@@ -225,118 +227,6 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// ─── AUTO-CALCULATE BARANGAY BOUNDS FROM ACTUAL DATA ─────────────────────────
-// ─── AUTO-CALCULATE BARANGAY BOUNDS FROM ACTUAL DATA ─────────────────────────
-app.get("/api/calculate-barangay-bounds", requireAdmin, async (req, res) => {
-  try {
-    const [barangays] = await geoDB.query(
-      `SELECT DISTINCT barangay FROM businesses WHERE barangay IS NOT NULL AND barangay <> '' ORDER BY barangay`
-    );
-    
-    const results = [];
-    
-    for (const b of barangays) {
-      const [coords] = await geoDB.query(
-        `SELECT 
-           MIN(CAST(lat AS DECIMAL(10,7))) as minLat,
-           MAX(CAST(lat AS DECIMAL(10,7))) as maxLat,
-           MIN(CAST(lon AS DECIMAL(10,7))) as minLon,
-           MAX(CAST(lon AS DECIMAL(10,7))) as maxLon,
-           AVG(CAST(lat AS DECIMAL(10,7))) as avgLat,
-           AVG(CAST(lon AS DECIMAL(10,7))) as avgLon,
-           COUNT(*) as cnt
-         FROM businesses
-         WHERE barangay = ?
-           AND lat IS NOT NULL AND lon IS NOT NULL
-           AND lat <> 'null' AND lon <> 'null'`,
-        [b.barangay]
-      );
-      
-      if (coords[0] && coords[0].cnt > 0) {
-        const minLat = Number(coords[0].minLat);
-        const maxLat = Number(coords[0].maxLat);
-        const minLon = Number(coords[0].minLon);
-        const maxLon = Number(coords[0].maxLon);
-        const avgLat = Number(coords[0].avgLat);
-        const avgLon = Number(coords[0].avgLon);
-        
-        // Add small padding (0.002 degrees ≈ 200m)
-        const padding = 0.002;
-        
-        results.push({
-          barangay: b.barangay,
-          bounds: {
-            minLat: (minLat - padding).toFixed(4),
-            maxLat: (maxLat + padding).toFixed(4),
-            minLon: (minLon - padding).toFixed(4),
-            maxLon: (maxLon + padding).toFixed(4),
-          },
-          center: {
-            lat: avgLat.toFixed(4),
-            lon: avgLon.toFixed(4)
-          },
-          count: coords[0].cnt
-        });
-      }
-    }
-    
-    res.json({ success: true, bounds: results });
-  } catch (err) {
-    console.error("calculate-barangay-bounds error:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-app.get("/api/clean-bad-coordinates", requireAdmin, async (req, res) => {
-  try {
-    // Remove businesses clearly outside Pasig
-    const [result] = await geoDB.query(
-      `DELETE FROM businesses 
-       WHERE (CAST(lat AS DECIMAL(10,7)) < 14.500 
-          OR CAST(lat AS DECIMAL(10,7)) > 14.650
-          OR CAST(lon AS DECIMAL(10,7)) < 121.000 
-          OR CAST(lon AS DECIMAL(10,7)) > 121.150)
-         AND lat IS NOT NULL AND lon IS NOT NULL`
-    );
-    
-    res.json({ 
-      success: true, 
-      deletedCount: result.affectedRows,
-      message: `Removed ${result.affectedRows} businesses with coordinates outside Pasig`
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-app.get("/api/check-river-businesses", requireAuth, async (req, res) => {
-  try {
-    // Check businesses in Santa Lucia bounds that might be in the river
-    const [biz] = await geoDB.query(
-      `SELECT id, barangay, business_trade_name, lat, lon
-       FROM businesses
-       WHERE CAST(lat AS DECIMAL(10,7)) >= 14.576 
-         AND CAST(lat AS DECIMAL(10,7)) <= 14.584
-         AND CAST(lon AS DECIMAL(10,7)) >= 121.098 
-         AND CAST(lon AS DECIMAL(10,7)) <= 121.104
-       ORDER BY RAND()
-       LIMIT 20`
-    );
-    
-    res.json({
-      total: biz.length,
-      businesses: biz.map(b => ({
-        id: b.id,
-        name: b.business_trade_name,
-        lat: Number(b.lat),
-        lon: Number(b.lon),
-        maps: `https://www.google.com/maps?q=${b.lat},${b.lon}`
-      }))
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 async function sendVerificationCode(email, username, code) {
   await transporter.sendMail({
     from: "ballesterosyther1@gmail.com",
@@ -449,7 +339,6 @@ function getBusinessProfile(businessType, category = null) {
   };
 }
 
-// ─── Helper: Map readable business names to database codes ────────────────────
 function ideaToDbSearchTerms(idea) {
   const ideaLower = (idea || '').toLowerCase().trim();
   const mappings = {
@@ -535,7 +424,6 @@ function ideaToDbSearchTerms(idea) {
   
   if (mappings[ideaLower]) return mappings[ideaLower];
   
-  // Try partial match
   const words = ideaLower.split(/\s+/);
   for (const key of Object.keys(mappings)) {
     for (const word of words) {
@@ -545,11 +433,161 @@ function ideaToDbSearchTerms(idea) {
     }
   }
   
-  // Fallback
   return [idea, ideaLower.replace(/\s+/g, '%')];
 }
 
-// ─── ROUTES ───────────────────────────────────────────────────────────────────
+function dbCodeToReadableName(dbCode) {
+  if (!dbCode) return 'Other Business';
+  const code = dbCode.toString().toUpperCase().trim();
+  
+  if (code.includes('PIZZA')) return 'Pizza Restaurant';
+  if (code.includes('BAKERY') || code.includes('BAKESHOP')) return 'Bakery';
+  if (code.includes('COFFEE') || code.includes('CAFE')) return 'Coffee Shop';
+  if (code.includes('MILK TEA') || code.includes('MILKTEA')) return 'Milk Tea Shop';
+  if (code.includes('RESTAURANT') || code.includes('EATERY') || code.includes('CANTEEN') || code.includes('DINER')) return 'Restaurant';
+  if (code.includes('FAST FOOD')) return 'Fast Food Restaurant';
+  if (code.includes('CATERING')) return 'Catering';
+  if (code.includes('SARI-SARI') || code.includes('SARI SARI')) return 'Sari-Sari Store';
+  if (code.includes('GROCERY') || code.includes('SUPERMARKET')) return 'Grocery';
+  if (code.includes('CONVENIENCE') || code.includes('MINIMART')) return 'Convenience Store';
+  if (code.includes('DRUG') || code.includes('PHARMACY')) return 'Pharmacy';
+  if (code.includes('SALON') || code.includes('BEAUTY') || code.includes('BARBER')) return 'Salon & Beauty';
+  if (code.includes('LAUNDRY') || code.includes('WASHING')) return 'Laundry Shop';
+  if (code.includes('SPA') || code.includes('MASSAGE')) return 'Spa & Massage';
+  if (code.includes('CLINIC') || code.includes('HOSPITAL') || code.includes('MEDICAL') || code.includes('DENTAL')) return 'Healthcare';
+  if (code.includes('SCHOOL') || code.includes('TUTORIAL') || code.includes('TRAINING') || code.includes('EDUCATION')) return 'Education';
+  if (code.includes('HOTEL') || code.includes('MOTEL') || code.includes('INN') || code.includes('LODGE')) return 'Hotel & Lodging';
+  if (code.includes('HARDWARE')) return 'Hardware Store';
+  if (code.includes('WATER')) return 'Water Refilling';
+  if (code.includes('LPG')) return 'LPG Dealer';
+  if (code.includes('GAS') || code.includes('FUEL') || code.includes('PETROL')) return 'Gas Station';
+  if (code.includes('BANK')) return 'Bank';
+  if (code.includes('CONSTRUCTION')) return 'Construction';
+  if (code.includes('SECURITY') || code.includes('GUARD')) return 'Security Agency';
+  if (code.includes('FUNERAL')) return 'Funeral Services';
+  if (code.includes('PRINTING') || code.includes('PHOTOCOPY')) return 'Printing Services';
+  if (code.includes('GYM') || code.includes('FITNESS')) return 'Gym / Fitness';
+  if (code.includes('CAR') || code.includes('AUTO') || code.includes('VEHICLE') || code.includes('VULCANIZING')) return 'Auto Shop';
+  if (code.includes('TRAVEL')) return 'Travel Agency';
+  if (code.includes('LENDING') || code.includes('LOAN')) return 'Lending';
+  if (code.includes('PAWNSHOP')) return 'Pawnshop';
+  if (code.includes('INSURANCE')) return 'Insurance';
+  if (code.includes('REMITTANCE') || code.includes('MONEY')) return 'Money Remittance';
+  if (code.includes('COOPERATIVE')) return 'Cooperative';
+  if (code.includes('BPO') || code.includes('CALL CENTER')) return 'BPO / Call Center';
+  if (code.includes('SOFTWARE') || code.includes('IT SERVICES') || code.includes('TECH')) return 'IT / Software';
+  if (code.includes('TRUCKING') || code.includes('CARGO') || code.includes('COURIER') || code.includes('LOGISTICS')) return 'Logistics';
+  if (code.includes('WAREHOUSE')) return 'Warehouse';
+  if (code.includes('REAL ESTATE') || code.includes('LESSOR') || code.includes('APARTMENT') || code.includes('RENTAL')) return 'Real Estate';
+  if (code.includes('LAW') || code.includes('LEGAL') || code.includes('ATTORNEY')) return 'Law Firm';
+  if (code.includes('CONSULTING') || code.includes('CONSULTANCY')) return 'Consulting';
+  if (code.includes('ACCOUNTING') || code.includes('AUDIT')) return 'Accounting';
+  if (code.includes('MARKETING') || code.includes('ADVERTISING')) return 'Marketing';
+  if (code.includes('MANPOWER') || code.includes('HR')) return 'Manpower Services';
+  if (code.includes('PHOTOGRAPHY') || code.includes('PHOTO STUDIO')) return 'Photo Studio';
+  if (code.includes('TAILORING') || code.includes('ALTERATION')) return 'Tailoring';
+  if (code.includes('NAIL')) return 'Nail Salon';
+  if (code.includes('OPTICAL') || code.includes('EYEWEAR')) return 'Optical Shop';
+  if (code.includes('CLOTHING') || code.includes('BOUTIQUE') || code.includes('FASHION')) return 'Clothing Store';
+  if (code.includes('SHOE') || code.includes('FOOTWEAR')) return 'Shoe Store';
+  if (code.includes('BOOK') || code.includes('SCHOOL SUPPLY')) return 'Bookstore';
+  if (code.includes('TOY') || code.includes('GAMES')) return 'Toy Store';
+  if (code.includes('PET') || code.includes('VETERINARY')) return 'Pet Shop';
+  if (code.includes('FLOWER') || code.includes('FLORIST')) return 'Flower Shop';
+  if (code.includes('DAYCARE') || code.includes('CHILDCARE')) return 'Daycare';
+  if (code.includes('CLEANING') || code.includes('JANITORIAL')) return 'Cleaning Services';
+  if (code.includes('PARKING')) return 'Parking';
+  if (code.includes('EVENTS') || code.includes('VENUE') || code.includes('HALL')) return 'Events Place';
+  if (code.includes('FOREIGN EXCHANGE') || code.includes('FOREX')) return 'Foreign Exchange';
+  if (code.includes('FRANCHISE')) return 'Franchise';
+  if (code.includes('EXPORT')) return 'Export';
+  if (code.includes('STOCKBROKER') || code.includes('BROKER')) return 'Stockbroker';
+  if (code.includes('REPAIR')) return 'Repair Shop';
+  
+  return 'Other Business';
+}
+
+function getCategoryKeywords(category) {
+  const catLower = (category || '').toLowerCase().trim();
+  
+  const CATEGORY_KEYWORDS = {
+    'food & beverage': [
+      'restaurant', 'eatery', 'cafe', 'coffee', 'bakery', 'bakeshop', 
+      'fast food', 'canteen', 'catering', 'pizza', 'burger', 'diner', 
+      'grill', 'milk tea', 'juice', 'snack', 'panciteria', 'ice cream', 
+      'donut', 'pastry', 'food', 'beverage', 'drink', 'bar', 'karaoke',
+      'refreshment', 'pares', 'silog', 'tapsi', 'lugaw', 'goto', 'ihaw',
+      'lechon', 'seafood', 'buffet', 'carinderia', 'turo-turo'
+    ],
+    'retail & trading': [
+      'store', 'retail', 'sari-sari', 'grocery', 'supermarket', 
+      'convenience', 'hardware', 'cellphone', 'appliance', 'clothing', 
+      'bookstore', 'optical', 'pharmacy', 'drug', 'shoe', 'toy', 
+      'pet', 'flower', 'trading', 'shop', 'mart'
+    ],
+    'beauty & wellness': [
+      'salon', 'barber', 'spa', 'massage', 'nail', 'wellness', 'beauty', 'hair'
+    ],
+    'healthcare': [
+      'clinic', 'hospital', 'dental', 'pharmacy', 'drug', 'laboratory', 
+      'medical', 'optical', 'veterinary'
+    ],
+    'hospitality': [
+      'hotel', 'motel', 'inn', 'lodge', 'pension', 'resort', 'catering', 'apartment'
+    ],
+    'education': [
+      'school', 'tutorial', 'training', 'review', 'daycare', 'academy'
+    ],
+    'finance & banking': [
+      'bank', 'lending', 'pawnshop', 'insurance', 'remittance', 
+      'cooperative', 'microfinance', 'money'
+    ],
+    'construction': [
+      'construction', 'hardware', 'contractor', 'supplies'
+    ],
+    'logistics & transport': [
+      'trucking', 'cargo', 'freight', 'courier', 'delivery', 'logistics', 'warehouse'
+    ],
+    'it & software': [
+      'software', 'it services', 'tech', 'internet', 'computer', 'web', 'app', 'digital'
+    ],
+    'bpo & call center': [
+      'bpo', 'call center', 'outsourcing'
+    ],
+    'manufacturing': [
+      'manufacturing', 'factory', 'production', 'fabrication'
+    ],
+    'wholesale & import': [
+      'wholesale', 'distributor', 'importer', 'trading'
+    ],
+    'energy & fuel': [
+      'gas station', 'lpg', 'fuel', 'energy', 'solar'
+    ],
+    'security': [
+      'security', 'guard', 'cctv', 'alarm'
+    ],
+    'legal & consulting': [
+      'law', 'legal', 'consulting', 'accounting', 'notary', 'attorney'
+    ],
+    'marketing & advertising': [
+      'marketing', 'advertising', 'printing', 'photography', 'videography'
+    ],
+    'hr & manpower': [
+      'manpower', 'admin', 'hr'
+    ],
+    'general services': [
+      'laundry', 'car wash', 'cleaning', 'repair', 'printing', 
+      'photography', 'travel', 'funeral', 'events', 'gym', 'fitness', 
+      'tailoring', 'parking', 'water'
+    ],
+  };
+  
+  return CATEGORY_KEYWORDS[catLower] || [];
+}
+
+// =============================================
+// ROUTES
+// =============================================
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(frontendPath, "login.html"));
@@ -675,7 +713,7 @@ app.post("/reset-password", async (req, res) => {
 app.get("/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) return res.status(500).json({ success: false });
-    res.redirect("/"); // ← must be "/" not "/dashboard"
+    res.redirect("/");
   });
 });
 
@@ -717,6 +755,7 @@ app.get("/api/me", requireAuth, async (req, res) => {
     res.json({ success: true, affiliation: '', industry: '', industry_specific: '' });
   }
 });
+
 app.get("/api/admin/test-report-tables", requireAdmin, async (req, res) => {
   try {
     const [tables] = await legendDB.query(`
@@ -742,6 +781,7 @@ app.get("/api/admin/test-report-tables", requireAdmin, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 app.get("/api/admin/users", requireAdmin, async (req, res) => {
   try {
     const [rows] = await legendDB.query(
@@ -901,8 +941,7 @@ app.post("/api/user-profile", requireAuth, async (req, res) => {
 });
 
 app.get("/admin/profile", requireAdminPage, (req, res) => {
-  res.sendFile(path.join(adminDashboardPath, "admindb.html")); 
-  // or a separate admin profile HTML if you have one
+  res.sendFile(path.join(adminDashboardPath, "admindb.html"));
 });
 
 app.get("/api/check-auth", (req, res) => {
@@ -1214,90 +1253,12 @@ app.delete("/api/admin/demographics/:id", requireAdmin, async (req, res) => {
   }
 });
 
-// ─── Helper: Convert DB business codes to readable names ──────────────────────
-function dbCodeToReadableName(dbCode) {
-  if (!dbCode) return 'Other Business';
-  
-  const code = dbCode.toString().toUpperCase().trim();
-  
-  // Specific food types (keep these)
-  if (code.includes('PIZZA')) return 'Pizza Restaurant';
-  if (code.includes('BAKERY') || code.includes('BAKESHOP')) return 'Bakery';
-  if (code.includes('COFFEE') || code.includes('CAFE')) return 'Coffee Shop';
-  if (code.includes('MILK TEA') || code.includes('MILKTEA')) return 'Milk Tea Shop';
-  if (code.includes('RESTAURANT') || code.includes('EATERY') || code.includes('CANTEEN') || code.includes('DINER')) return 'Restaurant';
-  if (code.includes('FAST FOOD')) return 'Fast Food Restaurant';
-  if (code.includes('CATERING')) return 'Catering';
-  
-  // Other specific types
-  if (code.includes('SARI-SARI') || code.includes('SARI SARI')) return 'Sari-Sari Store';
-  if (code.includes('GROCERY') || code.includes('SUPERMARKET')) return 'Grocery';
-  if (code.includes('CONVENIENCE') || code.includes('MINIMART')) return 'Convenience Store';
-  if (code.includes('DRUG') || code.includes('PHARMACY')) return 'Pharmacy';
-  if (code.includes('SALON') || code.includes('BEAUTY') || code.includes('BARBER')) return 'Salon & Beauty';
-  if (code.includes('LAUNDRY') || code.includes('WASHING')) return 'Laundry Shop';
-  if (code.includes('SPA') || code.includes('MASSAGE')) return 'Spa & Massage';
-  if (code.includes('CLINIC') || code.includes('HOSPITAL') || code.includes('MEDICAL') || code.includes('DENTAL')) return 'Healthcare';
-  if (code.includes('SCHOOL') || code.includes('TUTORIAL') || code.includes('TRAINING') || code.includes('EDUCATION')) return 'Education';
-  if (code.includes('HOTEL') || code.includes('MOTEL') || code.includes('INN') || code.includes('LODGE')) return 'Hotel & Lodging';
-  if (code.includes('HARDWARE')) return 'Hardware Store';
-  if (code.includes('WATER')) return 'Water Refilling';
-  if (code.includes('LPG')) return 'LPG Dealer';
-  if (code.includes('GAS') || code.includes('FUEL') || code.includes('PETROL')) return 'Gas Station';
-  if (code.includes('BANK')) return 'Bank';
-  if (code.includes('CONSTRUCTION')) return 'Construction';
-  if (code.includes('SECURITY') || code.includes('GUARD')) return 'Security Agency';
-  if (code.includes('FUNERAL')) return 'Funeral Services';
-  if (code.includes('PRINTING') || code.includes('PHOTOCOPY')) return 'Printing Services';
-  if (code.includes('GYM') || code.includes('FITNESS')) return 'Gym / Fitness';
-  if (code.includes('CAR') || code.includes('AUTO') || code.includes('VEHICLE') || code.includes('VULCANIZING')) return 'Auto Shop';
-  if (code.includes('TRAVEL')) return 'Travel Agency';
-  if (code.includes('LENDING') || code.includes('LOAN')) return 'Lending';
-  if (code.includes('PAWNSHOP')) return 'Pawnshop';
-  if (code.includes('INSURANCE')) return 'Insurance';
-  if (code.includes('REMITTANCE') || code.includes('MONEY')) return 'Money Remittance';
-  if (code.includes('COOPERATIVE')) return 'Cooperative';
-  if (code.includes('BPO') || code.includes('CALL CENTER')) return 'BPO / Call Center';
-  if (code.includes('SOFTWARE') || code.includes('IT SERVICES') || code.includes('TECH')) return 'IT / Software';
-  if (code.includes('TRUCKING') || code.includes('CARGO') || code.includes('COURIER') || code.includes('LOGISTICS')) return 'Logistics';
-  if (code.includes('WAREHOUSE')) return 'Warehouse';
-  if (code.includes('REAL ESTATE') || code.includes('LESSOR') || code.includes('APARTMENT') || code.includes('RENTAL')) return 'Real Estate';
-  if (code.includes('LAW') || code.includes('LEGAL') || code.includes('ATTORNEY')) return 'Law Firm';
-  if (code.includes('CONSULTING') || code.includes('CONSULTANCY')) return 'Consulting';
-  if (code.includes('ACCOUNTING') || code.includes('AUDIT')) return 'Accounting';
-  if (code.includes('MARKETING') || code.includes('ADVERTISING')) return 'Marketing';
-  if (code.includes('MANPOWER') || code.includes('HR')) return 'Manpower Services';
-  if (code.includes('PHOTOGRAPHY') || code.includes('PHOTO STUDIO')) return 'Photo Studio';
-  if (code.includes('TAILORING') || code.includes('ALTERATION')) return 'Tailoring';
-  if (code.includes('NAIL')) return 'Nail Salon';
-  if (code.includes('OPTICAL') || code.includes('EYEWEAR')) return 'Optical Shop';
-  if (code.includes('CLOTHING') || code.includes('BOUTIQUE') || code.includes('FASHION')) return 'Clothing Store';
-  if (code.includes('SHOE') || code.includes('FOOTWEAR')) return 'Shoe Store';
-  if (code.includes('BOOK') || code.includes('SCHOOL SUPPLY')) return 'Bookstore';
-  if (code.includes('TOY') || code.includes('GAMES')) return 'Toy Store';
-  if (code.includes('PET') || code.includes('VETERINARY')) return 'Pet Shop';
-  if (code.includes('FLOWER') || code.includes('FLORIST')) return 'Flower Shop';
-  if (code.includes('DAYCARE') || code.includes('CHILDCARE')) return 'Daycare';
-  if (code.includes('CLEANING') || code.includes('JANITORIAL')) return 'Cleaning Services';
-  if (code.includes('PARKING')) return 'Parking';
-  if (code.includes('EVENTS') || code.includes('VENUE') || code.includes('HALL')) return 'Events Place';
-  if (code.includes('FOREIGN EXCHANGE') || code.includes('FOREX')) return 'Foreign Exchange';
-  if (code.includes('FRANCHISE')) return 'Franchise';
-  if (code.includes('EXPORT')) return 'Export';
-  if (code.includes('STOCKBROKER') || code.includes('BROKER')) return 'Stockbroker';
-  if (code.includes('REPAIR')) return 'Repair Shop';
-  
-  // DON'T return vague names - return the best match or 'Other Business'
-  return 'Other Business';
-}
-
 app.get("/api/ideas", requireAuth, async (req, res) => {
   try {
     const { category, barangay, top = 3, prefs = "" } = req.query;
     const prefList = prefs ? prefs.split(",").filter(Boolean) : [];
     const topN = parseInt(top) || 3;
 
-    // ─── Get category keywords for filtering ──────────────────────────────────
     const mappedCategory = category ? (TYPE_TO_CATEGORY[category] || category) : null;
     const categoryKeywords = mappedCategory ? getCategoryKeywords(mappedCategory) : [];
 
@@ -1308,7 +1269,6 @@ app.get("/api/ideas", requireAuth, async (req, res) => {
       const p = [];
       
       if (opts.category && categoryKeywords.length > 0) {
-        // Filter by category keywords matching line_of_business
         const keywordConditions = categoryKeywords.map(() => 
           `LOWER(line_of_business) LIKE ?`
         ).join(' OR ');
@@ -1325,10 +1285,8 @@ app.get("/api/ideas", requireAuth, async (req, res) => {
       return rows;
     }
 
-    // Fetch with category and barangay filters
     let ideaRows = await fetchIdeaRows({ category: mappedCategory, barangay });
 
-    // Progressive fallback
     if (ideaRows.length < topN && barangay && mappedCategory) {
       const wider = await fetchIdeaRows({ barangay });
       const existing = new Set(ideaRows.map(r => r.name));
@@ -1349,7 +1307,6 @@ app.get("/api/ideas", requireAuth, async (req, res) => {
 
     if (!ideaRows.length) return res.json({ success: true, data: [] });
 
-    // ─── Convert to readable names and filter out generic/irrelevant ──────────
     const GENERIC_NAMES = ['Food Business', 'Other Business', 'General Business', 
                            'Retail Store', 'Services', 'Wholesale', 'Manufacturing',
                            'Admin Services', 'General Services'];
@@ -1357,10 +1314,8 @@ app.get("/api/ideas", requireAuth, async (req, res) => {
     const readableNameMap = new Map();
     ideaRows.forEach(row => {
       const readableName = dbCodeToReadableName(row.name);
-      // Skip generic/vague names
       if (GENERIC_NAMES.includes(readableName)) return;
       
-      // If category is specified, check if the readable name matches
       if (categoryKeywords.length > 0) {
         const matchesCategory = categoryKeywords.some(kw => 
           readableName.toLowerCase().includes(kw.toLowerCase())
@@ -1379,9 +1334,7 @@ app.get("/api/ideas", requireAuth, async (req, res) => {
       .map(([name, cnt]) => ({ name, cnt }))
       .sort((a, b) => b.cnt - a.cnt);
 
-    // If not enough results after filtering, relax the category filter
     if (readableRows.length < topN && categoryKeywords.length > 0) {
-      // Re-process without category filter
       const relaxedMap = new Map();
       ideaRows.forEach(row => {
         const readableName = dbCodeToReadableName(row.name);
@@ -1408,84 +1361,6 @@ app.get("/api/ideas", requireAuth, async (req, res) => {
   }
 });
 
-// Add this helper function to map categories to keywords
-function getCategoryKeywords(category) {
-  const catLower = (category || '').toLowerCase().trim();
-  
-  const CATEGORY_KEYWORDS = {
-    'food & beverage': [
-      'restaurant', 'eatery', 'cafe', 'coffee', 'bakery', 'bakeshop', 
-      'fast food', 'canteen', 'catering', 'pizza', 'burger', 'diner', 
-      'grill', 'milk tea', 'juice', 'snack', 'panciteria', 'ice cream', 
-      'donut', 'pastry', 'food', 'beverage', 'drink', 'bar', 'karaoke',
-      'refreshment', 'pares', 'silog', 'tapsi', 'lugaw', 'goto', 'ihaw',
-      'lechon', 'seafood', 'buffet', 'carinderia', 'turo-turo'
-    ],
-    'retail & trading': [
-      'store', 'retail', 'sari-sari', 'grocery', 'supermarket', 
-      'convenience', 'hardware', 'cellphone', 'appliance', 'clothing', 
-      'bookstore', 'optical', 'pharmacy', 'drug', 'shoe', 'toy', 
-      'pet', 'flower', 'trading', 'shop', 'mart'
-    ],
-    'beauty & wellness': [
-      'salon', 'barber', 'spa', 'massage', 'nail', 'wellness', 'beauty', 'hair'
-    ],
-    'healthcare': [
-      'clinic', 'hospital', 'dental', 'pharmacy', 'drug', 'laboratory', 
-      'medical', 'optical', 'veterinary'
-    ],
-    'hospitality': [
-      'hotel', 'motel', 'inn', 'lodge', 'pension', 'resort', 'catering', 'apartment'
-    ],
-    'education': [
-      'school', 'tutorial', 'training', 'review', 'daycare', 'academy'
-    ],
-    'finance & banking': [
-      'bank', 'lending', 'pawnshop', 'insurance', 'remittance', 
-      'cooperative', 'microfinance', 'money'
-    ],
-    'construction': [
-      'construction', 'hardware', 'contractor', 'supplies'
-    ],
-    'logistics & transport': [
-      'trucking', 'cargo', 'freight', 'courier', 'delivery', 'logistics', 'warehouse'
-    ],
-    'it & software': [
-      'software', 'it services', 'tech', 'internet', 'computer', 'web', 'app', 'digital'
-    ],
-    'bpo & call center': [
-      'bpo', 'call center', 'outsourcing'
-    ],
-    'manufacturing': [
-      'manufacturing', 'factory', 'production', 'fabrication'
-    ],
-    'wholesale & import': [
-      'wholesale', 'distributor', 'importer', 'trading'
-    ],
-    'energy & fuel': [
-      'gas station', 'lpg', 'fuel', 'energy', 'solar'
-    ],
-    'security': [
-      'security', 'guard', 'cctv', 'alarm'
-    ],
-    'legal & consulting': [
-      'law', 'legal', 'consulting', 'accounting', 'notary', 'attorney'
-    ],
-    'marketing & advertising': [
-      'marketing', 'advertising', 'printing', 'photography', 'videography'
-    ],
-    'hr & manpower': [
-      'manpower', 'admin', 'hr'
-    ],
-    'general services': [
-      'laundry', 'car wash', 'cleaning', 'repair', 'printing', 
-      'photography', 'travel', 'funeral', 'events', 'gym', 'fitness', 
-      'tailoring', 'parking', 'water'
-    ],
-  };
-  
-  return CATEGORY_KEYWORDS[catLower] || [];
-}
 app.get("/api/ideas-by-point", requireAuth, async (req, res) => {
   try {
     const { lat, lon, category, top = 3, prefs = "" } = req.query;
@@ -1516,7 +1391,6 @@ app.get("/api/ideas-by-point", requireAuth, async (req, res) => {
     sql += " GROUP BY line_of_business ORDER BY cnt DESC";
     const [ideaRows] = await geoDB.query(sql, params);
 
-    // ─── DEDUPE by readable name, sum counts ─────────────────────────────────
     const readableMap = new Map();
     ideaRows.forEach(row => {
       const readable = dbCodeToReadableName(row.name);
@@ -1532,7 +1406,7 @@ app.get("/api/ideas-by-point", requireAuth, async (req, res) => {
       .map(([name, cnt]) => ({ name, cnt }))
       .sort((a, b) => b.cnt - a.cnt);
 
-    if (!readableIdeaRows.length) return res.json({ success: true, data: [] });
+    if (readableIdeaRows.length === 0) return res.json({ success: true, data: [] });
 
     const topN = parseInt(top) || 3;
 
@@ -1543,7 +1417,6 @@ app.get("/api/ideas-by-point", requireAuth, async (req, res) => {
       });
     }
 
-    // ─── Preference-based scoring ─────────────────────────────────────────────
     const ideas = readableIdeaRows.map(r => r.name);
 
     const [allBiz] = await geoDB.query(
@@ -1647,12 +1520,10 @@ app.get("/api/ideas-by-point", requireAuth, async (req, res) => {
   }
 });
 
-// ─── Get actual business types in a barangay ──────────────────────────────────
 app.get("/api/barangay-business-types", requireAuth, async (req, res) => {
   try {
     const { barangay, type } = req.query;
     
-    // FIXED: Return empty array if no barangay provided
     if (!barangay) {
       return res.json({ success: true, data: [] });
     }
@@ -1666,7 +1537,6 @@ app.get("/api/barangay-business-types", requireAuth, async (req, res) => {
     
     const params = [`${normalizeBarangay(barangay)}%`];
     
-    // Add type filter if specified
     if (type) {
       const mappedCategory = TYPE_TO_CATEGORY[type] || type;
       sql += ` AND category = ?`;
@@ -1677,12 +1547,10 @@ app.get("/api/barangay-business-types", requireAuth, async (req, res) => {
     
     const [rows] = await geoDB.query(sql, params);
     
-    // Transform the business codes into readable names
     const businessTypes = rows.map(row => {
       const rawType = row.line_of_business || '';
       let readable = rawType;
       
-      // Map common codes to readable names
       if (/RESTAURANT/i.test(rawType)) readable = 'Restaurant';
       else if (/SARI-SARI/i.test(rawType)) readable = 'Sari-Sari Store';
       else if (/BAKERY/i.test(rawType)) readable = 'Bakery';
@@ -1716,7 +1584,6 @@ app.get("/api/barangay-business-types", requireAuth, async (req, res) => {
       return readable;
     });
     
-    // Remove duplicates
     const uniqueTypes = [...new Set(businessTypes)];
     
     res.json({ success: true, data: uniqueTypes.slice(0, 3) });
@@ -1727,7 +1594,6 @@ app.get("/api/barangay-business-types", requireAuth, async (req, res) => {
   }
 });
 
-// Add this debug endpoint to server.js
 app.get("/api/verify-barangay-names", requireAuth, async (req, res) => {
   try {
     const [sample] = await geoDB.query(
@@ -1737,7 +1603,6 @@ app.get("/api/verify-barangay-names", requireAuth, async (req, res) => {
        LIMIT 30`
     );
     
-    // Get the actual barangay for each coordinate
     const results = await Promise.all(sample.map(async (biz) => {
       try {
         const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${biz.lat}&lon=${biz.lon}&format=json`);
@@ -1755,7 +1620,6 @@ app.get("/api/verify-barangay-names", requireAuth, async (req, res) => {
       }
     }));
     
-    // Count mismatches
     const mismatches = results.filter(r => 
       r.nominatim_barangay.toLowerCase() !== 'santa lucia' && 
       r.nominatim_barangay !== 'Unknown' && 
@@ -1789,10 +1653,8 @@ app.get("/api/idea-locations", requireAuth, async (req, res) => {
     
     const params = [];
     
-    // FIX: Broader search - try multiple approaches
     const searchConditions = [];
     
-    // 1. Search by mapped DB codes
     if (searchTerms && searchTerms.length > 0) {
       const termConditions = searchTerms.map(() => 
         `(LOWER(line_of_business) LIKE ? OR LOWER(business_trade_name) LIKE ?)`
@@ -1803,11 +1665,9 @@ app.get("/api/idea-locations", requireAuth, async (req, res) => {
       });
     }
     
-    // 2. Search by the idea name directly
     searchConditions.push(`(LOWER(line_of_business) LIKE ? OR LOWER(business_trade_name) LIKE ?)`);
     params.push(`%${idea.toLowerCase()}%`, `%${idea.toLowerCase()}%`);
     
-    // 3. For food-related searches, also search for common food codes
     const foodIdeas = ['bakery', 'restaurant', 'eatery', 'canteen', 'coffee', 'cafe', 'fast food', 'bakeshop'];
     if (foodIdeas.some(f => idea.toLowerCase().includes(f))) {
       searchConditions.push(`(LOWER(line_of_business) LIKE '%bakery%' OR LOWER(line_of_business) LIKE '%bakeshop%' OR LOWER(line_of_business) LIKE '%restaurant%' OR LOWER(line_of_business) LIKE '%eatery%' OR LOWER(line_of_business) LIKE '%food%')`);
@@ -1815,7 +1675,6 @@ app.get("/api/idea-locations", requireAuth, async (req, res) => {
     
     sql += ` AND (${searchConditions.join(' OR ')})`;
 
-    // Barangay filter
     if (barangay) {
       sql += ` AND LOWER(TRIM(barangay)) = LOWER(TRIM(?))`;
       params.push(barangay);
@@ -1823,11 +1682,7 @@ app.get("/api/idea-locations", requireAuth, async (req, res) => {
 
     sql += ` ORDER BY RAND() LIMIT ${Math.min(topN * 3, 100)}`;
     
-    console.log('📍 idea-locations SQL:', sql.substring(0, 200));
-    console.log('📍 Params:', params);
-    
     const [rows] = await geoDB.query(sql, params);
-    console.log(`📍 Found ${rows.length} results for "${idea}" in ${barangay}`);
 
     let result = rows.map(r => ({
       lat: Number(r.lat),
@@ -1860,17 +1715,14 @@ app.get("/api/test-idea-mapping", (req, res) => {
   });
 });
 
-// Add to server.js temporarily
 app.get("/api/check-santa-lucia-centroids", requireAuth, async (req, res) => {
   try {
-    // Check demographic centroids
     const [demoCentroids] = await geoDB.query(
       `SELECT barangay_name, center_lat, center_lon 
        FROM demographic_pasig 
        WHERE LOWER(TRIM(barangay_name)) LIKE '%santa lucia%'`
     );
     
-    // Check actual business coordinates for Santa Lucia
     const [bizCoords] = await geoDB.query(
       `SELECT barangay, 
               MIN(CAST(lat AS DECIMAL(10,7))) as minLat, 
@@ -1897,75 +1749,13 @@ app.get("/api/check-santa-lucia-centroids", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/api/idea-locations", requireAuth, async (req, res) => {
-  try {
-    const { idea, barangay, top = 5 } = req.query;
-    if (!idea) return res.status(400).json({ success: false, message: "idea required" });
-
-    const topN = Math.min(parseInt(top, 10) || 5, 50);
-    const searchTerms = ideaToDbSearchTerms(idea);
-    
-    let sql = `SELECT id, barangay, CAST(lat AS DECIMAL(10,7)) AS lat, CAST(lon AS DECIMAL(10,7)) AS lon,
-                      business_trade_name, line_of_business
-               FROM businesses
-               WHERE lat IS NOT NULL AND lon IS NOT NULL
-                 AND lat != 'null' AND lon != 'null'`;
-    
-    const params = [];
-    
-    // Add search conditions
-    if (searchTerms && searchTerms.length > 0) {
-      const conditions = searchTerms.map(() => `(LOWER(line_of_business) LIKE ? OR LOWER(business_trade_name) LIKE ?)`).join(' OR ');
-      sql += ` AND (${conditions})`;
-      searchTerms.forEach(term => {
-        params.push(`%${term.toLowerCase()}%`, `%${term.toLowerCase()}%`);
-      });
-    }
-    
-    sql += ` AND (LOWER(line_of_business) LIKE ? OR LOWER(business_trade_name) LIKE ?)`;
-    params.push(`%${idea.toLowerCase()}%`, `%${idea.toLowerCase()}%`);
-
-    // SIMPLE barangay filter - just match the name, no bounds!
-    if (barangay) {
-      sql += ` AND LOWER(TRIM(barangay)) = LOWER(TRIM(?))`;
-      params.push(barangay);
-    }
-
-    sql += ` ORDER BY RAND() LIMIT ${Math.min(topN * 3, 100)}`;
-    
-    const [rows] = await geoDB.query(sql, params);
-
-    let result = rows.map(r => ({
-      lat: Number(r.lat),
-      lon: Number(r.lon),
-      barangay_name: r.barangay,
-      suitability_score: 0.9,
-      business_type: idea,
-      business_name: r.business_trade_name,
-      is_predicted: false
-    })).filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lon));
-
-    return res.json({ 
-      success: true, 
-      data: result.slice(0, topN),
-      total_found: rows.length
-    });
-  } catch (err) {
-    console.error("idea-locations error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-// ─── DATA FIX: Reassign barangay names based on GPS coordinates ───────────────
 app.get("/api/fix-barangay-names", requireAdmin, async (req, res) => {
   try {
     const results = [];
     
-    // Loop through all barangay bounds
     for (const [barangayName, bounds] of Object.entries(BARANGAY_BOUNDS)) {
-      // Capitalize first letter of each word
       const properName = barangayName.replace(/\b\w/g, c => c.toUpperCase());
       
-      // Update businesses whose coordinates fall within this barangay's bounds
       const [updateResult] = await geoDB.query(
         `UPDATE businesses 
          SET barangay = ?
@@ -1985,7 +1775,6 @@ app.get("/api/fix-barangay-names", requireAdmin, async (req, res) => {
       });
     }
     
-    // Count businesses that didn't match any bounds
     const [unmatched] = await geoDB.query(
       `SELECT COUNT(*) as cnt FROM businesses 
        WHERE lat IS NOT NULL AND lon IS NOT NULL 
@@ -2006,7 +1795,7 @@ app.get("/api/fix-barangay-names", requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-// ─── DATA FIX: Remove businesses outside Pasig ────────────────────────────────
+
 app.get("/api/fix-outside-pasig", requireAdmin, async (req, res) => {
   try {
     const [result] = await geoDB.query(
@@ -2030,7 +1819,6 @@ app.get("/api/fix-outside-pasig", requireAdmin, async (req, res) => {
   }
 });
 
-// ─── DEBUG ROUTES ─────────────────────────────────────────────────────────────
 app.get("/api/debug-manggahan", requireAuth, debugRouteRateLimit, async (req, res) => {
   const rawIdea = (req.query.idea || "Restaurant").toString().trim();
   const idea = rawIdea.slice(0, 80).replace(/[^a-zA-Z0-9\s&'().,-]/g, "");
@@ -2089,7 +1877,6 @@ app.get("/api/debug-session", (req, res) => {
   res.json({ authenticated: !!req.session.user, user: req.session.user || null, isAdmin: req.session.user?.role === "admin", adminDashboardPath });
 });
 
-// ─── REPORT LOGGING ROUTES ────────────────────────────────────────────────────
 app.post("/api/report/search-pin", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
@@ -2103,9 +1890,39 @@ app.post("/api/report/recommendation", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
     const { idea, area, lat, lon } = req.body;
-    await legendDB.query(`INSERT INTO recommendation_history (user_id, recommended_item_id, recommended_item_type, source, was_clicked, created_at) VALUES (?, ?, 'business_idea', ?, 1, NOW())`, [userId, idea || null, area || null]);
+    
+    console.log("Recommendation report received:", { userId, idea, area, lat, lon });
+    
+    // Handle lat/lon properly
+    let latValue = null;
+    let lonValue = null;
+    
+    if (lat && !isNaN(parseFloat(lat))) {
+      latValue = parseFloat(lat);
+    }
+    if (lon && !isNaN(parseFloat(lon))) {
+      lonValue = parseFloat(lon);
+    }
+    
+    // Handle idea - can be string or number
+    let itemId = '0';
+    if (idea && !isNaN(parseInt(idea))) {
+      itemId = parseInt(idea);
+    } else if (idea) {
+      itemId = idea.toString();
+    }
+    
+    await legendDB.query(
+      `INSERT INTO recommendation_history (user_id, recommended_item_id, recommended_item_type, source, was_clicked, lat, lon, created_at) 
+       VALUES (?, ?, 'business_idea', ?, 1, ?, ?, NOW())`,
+      [userId, itemId, area || null, latValue, lonValue]
+    );
+    
     res.json({ success: true });
-  } catch (err) { console.error("recommendation report error:", err); res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { 
+    console.error("recommendation report error:", err); 
+    res.status(500).json({ success: false, message: err.message }); 
+  }
 });
 
 app.post("/api/report/saved", requireAuth, async (req, res) => {
@@ -2118,15 +1935,16 @@ app.post("/api/report/saved", requireAuth, async (req, res) => {
   } catch (err) { console.error("saved report error:", err); res.status(500).json({ success: false, message: err.message }); }
 });
 
-// ─── ADMIN REPORT HISTORY ROUTES ──────────────────────────────────────────────
 app.get("/api/admin/report/search-pins", requireAdmin, async (req, res) => {
   try { const [rows] = await legendDB.query(`SELECT s.*, u.username, u.fullname FROM search_pin_history s LEFT JOIN users u ON s.user_id = u.id ORDER BY s.created_at DESC LIMIT 200`); res.json({ success: true, data: rows }); }
   catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
+
 app.get("/api/admin/report/recommendations", requireAdmin, async (req, res) => {
   try { const [rows] = await legendDB.query(`SELECT r.*, u.username, u.fullname FROM recommendation_history r LEFT JOIN users u ON r.user_id = u.id ORDER BY r.created_at DESC LIMIT 200`); res.json({ success: true, data: rows }); }
   catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
+
 app.get("/api/admin/report/saved", requireAdmin, async (req, res) => {
   try { const [rows] = await legendDB.query(`SELECT s.*, u.username, u.fullname FROM saved_history s LEFT JOIN users u ON s.user_id = u.id ORDER BY s.saved_at DESC LIMIT 200`); res.json({ success: true, data: rows }); }
   catch (err) { res.status(500).json({ success: false, message: err.message }); }
@@ -2138,7 +1956,12 @@ app.use("/dashboard", express.static(dashboardPath));
 app.use("/admin", express.static(adminDashboardPath));
 app.use("/admindashboard", express.static(adminDashboardPath));
 
-app.listen(3000, () => {
-  console.log("Server running on http://localhost:3000");
-  console.log("Admin dashboard: http://localhost:3000/admin");
+// ─── START SERVER ─────────────────────────────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📁 Frontend path: ${frontendPath}`);
+  console.log(`📁 Dashboard path: ${dashboardPath}`);
+  console.log(`📁 Admin path: ${adminDashboardPath}`);
 });

@@ -63,6 +63,7 @@ const BARANGAY_BOUNDS_MAP = {
   'sumilang': { minLat: 14.5650, maxLat: 14.5800, minLon: 121.0760, maxLon: 121.0910 },
   'ugong': { minLat: 14.5730, maxLat: 14.5880, minLon: 121.0570, maxLon: 121.0690 },
 };
+
 // ─── INDUSTRY → FILTER CHECKBOX MAP ─────────────────────────────────────────
 const INDUSTRY_FILTER_MAP = {
   'food and beverages': 'f-food',
@@ -132,11 +133,9 @@ const INDUSTRY_FILTER_MAP = {
   'general': 'f-general'
 };
 
-// ─── REPORT LOGGING (FIXED - USER SPECIFIC) ──────────────────────────────────
+// ─── REPORT LOGGING ───────────────────────────────────────────────────────────
 function getReportStorageKey() {
-  if (!currentUserId) {
-    return 'reportLogs_anonymous';
-  }
+  if (!currentUserId) return 'reportLogs_anonymous';
   return `reportLogs_${currentUserId}`;
 }
 
@@ -213,10 +212,13 @@ async function reportLogRecommendation({ idea, area, pinCount, lat, lon }) {
     pinCount: pinCount ?? null, lat: lat ?? null, lon: lon ?? null, filters: f
   });
   try {
+    const latValue = lat !== null && lat !== undefined && !isNaN(parseFloat(lat)) ? parseFloat(lat) : null;
+    const lonValue = lon !== null && lon !== undefined && !isNaN(parseFloat(lon)) ? parseFloat(lon) : null;
+    console.log('Sending recommendation report:', { idea, area, lat: latValue, lon: lonValue });
     await fetch('/api/report/recommendation', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idea: idea || null, area: area || null, lat: lat ?? null, lon: lon ?? null })
+      body: JSON.stringify({ idea: idea || null, area: area || null, lat: latValue, lon: lonValue })
     });
   } catch (e) { console.warn('DB report recommendation failed:', e); }
 }
@@ -239,10 +241,9 @@ async function reportLogSaved({ action, business_type, barangay, lat, lon }) {
 }
 
 // ─── MAP SETUP ───────────────────────────────────────────────────────────────
-const map = L.map('map').setView([14.5764, 121.0851], 15);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap contributors', maxZoom: 19
-}).addTo(map);
+// NOTE: `map` is declared here but initialized inside DOMContentLoaded below
+// so that the #map DOM element is guaranteed to exist before Leaflet touches it.
+let map;
 
 const PASIG_BOUNDS = {
   minLat: 14.5200, maxLat: 14.6400, minLon: 121.0400, maxLon: 121.1300
@@ -256,9 +257,7 @@ function isInPasig(lat, lon) {
 function getBarangayBoundsForMap(barangayName) {
   if (!barangayName) return null;
   const normalized = barangayName.toLowerCase().trim();
-
   let bounds = BARANGAY_BOUNDS_MAP[normalized];
-
   if (!bounds) {
     const key = Object.keys(BARANGAY_BOUNDS_MAP).find(k =>
       normalized.startsWith(k) || k.startsWith(normalized)
@@ -266,12 +265,12 @@ function getBarangayBoundsForMap(barangayName) {
     if (!key) return null;
     bounds = BARANGAY_BOUNDS_MAP[key];
   }
-
   return L.latLngBounds(
     [bounds.minLat, bounds.minLon],
     [bounds.maxLat, bounds.maxLon]
   );
 }
+
 const pinRangeEl = document.getElementById('pin-range');
 const pinCountInput = document.getElementById('pin-count');
 const pinCountLabel = document.getElementById('pin-count-label');
@@ -294,7 +293,6 @@ async function fetchIdeaLocations(filters = {}) {
   if (filters.prefs?.length) params.append('prefs', filters.prefs.join(','));
   if (filters._t) params.append('_t', filters._t);
 
-  // Create a cache key from the filters
   const cacheKey = JSON.stringify({
     idea: filters.idea?.trim(),
     barangay: filters.barangay,
@@ -302,63 +300,57 @@ async function fetchIdeaLocations(filters = {}) {
     prefs: filters.prefs?.sort()
   });
 
-  // Check if we have cached results
   if (ideaPinsCache.has(cacheKey)) {
     console.log('Using cached pins for:', filters.idea);
     return ideaPinsCache.get(cacheKey);
   }
 
-  // Fetch new results
   const res = await fetch(`/api/idea-locations?${params.toString()}`);
   const data = await res.json();
   const results = data.success ? data.data : [];
-
-  // Cache the results
   ideaPinsCache.set(cacheKey, results);
   console.log('Cached new pins for:', filters.idea);
-
   return results;
 }
+
 function zoomToBarangay(barangayName) {
   if (!barangayName) return false;
-
   const bounds = getBarangayBoundsForMap(barangayName);
   if (bounds && bounds.isValid()) {
     map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
     return true;
   }
 
-  // VERIFIED CENTROIDS - matching the actual pin locations
-const CENTROID_FALLBACK_CLIENT = {
-  'bagong ilog':       [14.5740, 121.0860],
-  'bagong katipunan':  [14.5572, 121.0750],  // ← OFFICIAL
-  'bambang':           [14.5740, 121.0680],
-  'buting':            [14.5720, 121.0770],
-  'caniogan':          [14.5790, 121.0870],
-  'dela paz':          [14.5900, 121.0890],
-  'kalawaan':          [14.5690, 121.0780],
-  'kapasigan':         [14.5700, 121.0730],
-  'kapitolyo':         [14.5830, 121.0630],
-  'malinao':           [14.5810, 121.0890],
-  'manggahan':         [14.5940, 121.0970],
-  'maybunga':          [14.5770, 121.0920],
-  'oranbo':            [14.5790, 121.0780],
-  'palatiw':           [14.5820, 121.0960],
-  'pinagbuhatan':      [14.5610, 121.0940],
-  'pineda':            [14.5670, 121.0650],
-  'rosario':           [14.5861, 121.0846],  // ← OFFICIAL
-  'sagad':             [14.5590, 121.0870],
-  'san antonio':       [14.5890, 121.0870],
-  'san joaquin':       [14.5521, 121.0798],  // ← OFFICIAL
-  'san jose':          [14.5594, 121.0734],  // ← OFFICIAL
-  'san miguel':        [14.5658, 121.0855],  // ← OFFICIAL
-  'san nicolas':       [14.5643, 121.0798],  // ← OFFICIAL
-  'santa lucia':       [14.5843, 121.1013],  // ← OFFICIAL
-  'santa rosa':        [14.5589, 121.0729],  // ← OFFICIAL
-  'santolan':          [14.5950, 121.0800],
-  'sumilang':          [14.5750, 121.0840],
-  'ugong':             [14.5830, 121.0620],
-};
+  const CENTROID_FALLBACK_CLIENT = {
+    'bagong ilog':       [14.5740, 121.0860],
+    'bagong katipunan':  [14.5572, 121.0750],
+    'bambang':           [14.5740, 121.0680],
+    'buting':            [14.5720, 121.0770],
+    'caniogan':          [14.5790, 121.0870],
+    'dela paz':          [14.5900, 121.0890],
+    'kalawaan':          [14.5690, 121.0780],
+    'kapasigan':         [14.5700, 121.0730],
+    'kapitolyo':         [14.5830, 121.0630],
+    'malinao':           [14.5810, 121.0890],
+    'manggahan':         [14.5940, 121.0970],
+    'maybunga':          [14.5770, 121.0920],
+    'oranbo':            [14.5790, 121.0780],
+    'palatiw':           [14.5820, 121.0960],
+    'pinagbuhatan':      [14.5610, 121.0940],
+    'pineda':            [14.5670, 121.0650],
+    'rosario':           [14.5861, 121.0846],
+    'sagad':             [14.5590, 121.0870],
+    'san antonio':       [14.5890, 121.0870],
+    'san joaquin':       [14.5521, 121.0798],
+    'san jose':          [14.5594, 121.0734],
+    'san miguel':        [14.5658, 121.0855],
+    'san nicolas':       [14.5643, 121.0798],
+    'santa lucia':       [14.5843, 121.1013],
+    'santa rosa':        [14.5589, 121.0729],
+    'santolan':          [14.5950, 121.0800],
+    'sumilang':          [14.5750, 121.0840],
+    'ugong':             [14.5830, 121.0620],
+  };
 
   const key = barangayName.toLowerCase().trim();
   const centroid = CENTROID_FALLBACK_CLIENT[key];
@@ -369,20 +361,17 @@ const CENTROID_FALLBACK_CLIENT = {
   return false;
 }
 
-// ─── REPLOT: replots the currently active idea across ALL selected barangays ──
+// ─── REPLOT ───────────────────────────────────────────────────────────────────
 async function replotFilteredPins() {
   if (!isFilterMode) return;
   if (activeIdeaIdx === -1 || !activeIdeaName) return;
 
   const requestId = ++activeRequestId;
   const top = getFilteredPinCount();
-
   clearBusinessMarkers();
 
-  // Get the currently selected barangays from checkboxes
   const barangayCheckboxes = document.querySelectorAll('[id^="b-"]:checked');
   const selectedBarangays = [...barangayCheckboxes].map(cb => barangayMap[cb.id]).filter(Boolean);
-
   let barangays = selectedBarangays.length ? selectedBarangays : [null];
 
   const allRecs = (await Promise.all(
@@ -395,7 +384,6 @@ async function replotFilteredPins() {
   )).flat();
 
   if (requestId !== activeRequestId) return;
-
   plotLocations(allRecs);
 }
 
@@ -408,12 +396,9 @@ if (pinCountInput && pinCountLabel) {
 
   const fireSlider = async () => {
     pinCountLabel.textContent = String(getFilteredPinCount());
-
     if (isFilterMode) {
-      // Filter panel mode — replot across selected barangays
       await replotFilteredPins();
     } else if (activeIdeaName) {
-      // Map-click mode — replot for the active idea at clicked location
       const top = getFilteredPinCount();
       const prefs = getPrefs();
       const recs = await fetchIdeaLocations({
@@ -462,15 +447,11 @@ function clearClickedMarker() {
 document.getElementById('close-saved-panel')?.addEventListener('click', () => savedPanel.classList.remove('open'));
 document.getElementById('close-loc-panel')?.addEventListener('click', () => locPanel.classList.remove('open'));
 
-// RESET FILTER BUTTON HANDLER - clears all pins and resets selections
+// RESET FILTER BUTTON HANDLER
 document.getElementById('filter-btn')?.addEventListener('click', function (e) {
   e.stopPropagation();
-
-  // Clear all pins from map
   clearBusinessMarkers();
   clearClickedMarker();
-
-  // Reset filter mode
   isFilterMode = false;
   allowIdeaPins = false;
   activeIdeaIdx = -1;
@@ -480,19 +461,11 @@ document.getElementById('filter-btn')?.addEventListener('click', function (e) {
   lastFilteredIdea = null;
   lastFilteredBarangay = null;
   lastFilteredPrefs = null;
-
-  // Reset pin range slider to default
   hidePinRange();
   setPinDefault();
-
-  // Clear the recommendations list
   const listEl = document.getElementById('rec-list');
   if (listEl) listEl.innerHTML = '';
-
-  // Close location panel if open
   locPanel?.classList.remove('open');
-
-  // Open filter panel
   const isOpen = filterPanel.classList.contains('open');
   closeAllPanels();
   if (!isOpen) filterPanel.classList.add('open');
@@ -669,8 +642,7 @@ function plotLocations(recs) {
   clearBusinessMarkers();
 
   if (!recs || recs.length === 0) {
-    console.log('📍 No pins to plot');
-    // Don't move the map if no pins
+    console.log('No pins to plot');
     return;
   }
 
@@ -686,45 +658,45 @@ function plotLocations(recs) {
     const marker = L.marker([lat, lon]).addTo(map)
       .bindPopup(
         `<b>${escapeHtml(brgy)}</b><br>${lat.toFixed(6)}, ${lon.toFixed(6)}<br>` +
-        `<span style="color:#2e7d32;">🎯 Suitability: ${Math.round((rec.suitability_score || 0) * 100)}%</span>`
+        `<span style="color:#2e7d32;">Suitability: ${Math.round((rec.suitability_score || 0) * 100)}%</span>`
       );
+
+    // FIX: use void or .catch() so the non-awaited async call doesn't cause issues
+    marker.on('click', () => {
+      reportLogRecommendation({
+        idea: rec.business_type || activeIdeaName,
+        area: brgy,
+        pinCount: businessMarkers.length,
+        lat,
+        lon
+      }).catch(err => console.warn('reportLogRecommendation error:', err));
+    });
+
     businessMarkers.push(marker);
     pinBounds.extend([lat, lon]);
   });
 
   if (businessMarkers.length === 0) return;
+  console.log(`Plotted ${businessMarkers.length} pins`);
 
-  console.log(`📍 Plotted ${businessMarkers.length} pins`);
-
-  // ─── FIX: Smart zoom - don't zoom out too far ───────────────────────────────
   if (pinBounds.isValid()) {
-    // Check if bounds are too large (spread across multiple barangays)
     const boundsCenter = pinBounds.getCenter();
     const boundsWidth = pinBounds.getEast() - pinBounds.getWest();
     const boundsHeight = pinBounds.getNorth() - pinBounds.getSouth();
-    
-    // If bounds are too large (>0.02 degrees ≈ 2km), zoom to center instead
+
     if (boundsWidth > 0.02 || boundsHeight > 0.02) {
-      // Zoom to center with appropriate zoom level based on spread
       const maxSpread = Math.max(boundsWidth, boundsHeight);
       let zoomLevel = 16;
       if (maxSpread > 0.05) zoomLevel = 14;
       else if (maxSpread > 0.03) zoomLevel = 15;
-      
       map.flyTo([boundsCenter.lat, boundsCenter.lng], zoomLevel, { duration: 0.8 });
     } else {
-      // Normal zoom with padding
-      map.flyToBounds(pinBounds, { 
-        padding: [60, 60], 
-        maxZoom: 16, 
-        duration: 0.8 
-      });
+      map.flyToBounds(pinBounds, { padding: [60, 60], maxZoom: 16, duration: 0.8 });
     }
   } else if (recs.length === 1) {
     map.flyTo([Number(recs[0].lat), Number(recs[0].lon)], 16, { duration: 0.8 });
   }
-  
-  // ─── ENSURE we stay within Pasig bounds ─────────────────────────────────────
+
   map.setMaxBounds([
     [PASIG_BOUNDS.minLat - 0.01, PASIG_BOUNDS.minLon - 0.01],
     [PASIG_BOUNDS.maxLat + 0.01, PASIG_BOUNDS.maxLon + 0.01]
@@ -774,6 +746,7 @@ async function fetchSavedRecommendations() {
     console.error('Error fetching saved recommendations:', err);
   }
 }
+
 async function saveRecommendationToDB(business_type, barangay, lat, lon) {
   try {
     const res = await fetch('/api/saved-recommendations', {
@@ -862,14 +835,15 @@ async function saveRowClickHandler(e) {
   }
 }
 
-// ─── RENDER IDEA LIST (multi-barangay aware) ──────────────────────────────────
+// ─── RENDER IDEA LIST ─────────────────────────────────────────────────────────
+// FIX: The entire function is now async, and the forEach callbacks are async too.
+// The auto-select at the bottom is now properly awaited via an IIFE.
 function renderIdeaList({ names, barangays, prefs, allowPins }) {
   if (typeof barangays === 'string') barangays = barangays ? [barangays] : null;
 
   const listEl = document.getElementById('rec-list');
   if (!listEl) return;
 
-  // ─── REMOVE DUPLICATES ──────────────────────────────────────────────────────
   const uniqueNames = [...new Set(names)];
 
   if (!uniqueNames || !uniqueNames.length) {
@@ -891,12 +865,10 @@ function renderIdeaList({ names, barangays, prefs, allowPins }) {
 
   attachSaveRowListeners();
 
+  // FIX: extracted as a named async function so it can be properly awaited
   const onIdeaSelect = async (el) => {
     const idea = el.dataset.idea;
     const idx = parseInt(el.dataset.idx);
-    const prevIdeaName = activeIdeaName;
-    const prevIdeaBarangays = activeIdeaBarangay ? [...activeIdeaBarangay] : null;
-    const prevIdeaPrefs = activeIdeaPrefs ? [...activeIdeaPrefs] : [];
 
     activeIdeaIdx = idx;
     activeIdeaName = idea;
@@ -905,12 +877,6 @@ function renderIdeaList({ names, barangays, prefs, allowPins }) {
 
     listEl.querySelectorAll('.rec-item').forEach(r => r.classList.remove('active'));
     el.classList.add('active');
-
-    const sameIdea =
-      prevIdeaName === activeIdeaName &&
-      JSON.stringify(prevIdeaBarangays || []) === JSON.stringify(activeIdeaBarangay || []) &&
-      JSON.stringify(prevIdeaPrefs || []) === JSON.stringify(activeIdeaPrefs || []);
-    if (sameIdea) return;
 
     await reportLogRecommendation({
       idea,
@@ -923,7 +889,6 @@ function renderIdeaList({ names, barangays, prefs, allowPins }) {
     loadAreaDemographics(primaryBarangay || currentBarangayName, idea);
 
     const top = getFilteredPinCount();
-
     const barangayList = barangays && barangays.length ? barangays : [null];
     const allRecs = (await Promise.all(
       barangayList.map(b => fetchIdeaLocations({
@@ -939,6 +904,7 @@ function renderIdeaList({ names, barangays, prefs, allowPins }) {
     plotLocations(allRecs);
   };
 
+  // FIX: forEach callback is now async so await works inside it
   listEl.querySelectorAll('.rec-item').forEach(el => {
     el.addEventListener('click', async (e) => {
       if (e.target.closest('.save-row')) return;
@@ -949,10 +915,13 @@ function renderIdeaList({ names, barangays, prefs, allowPins }) {
 
   markSavedInCurrentList();
 
+  // FIX: auto-select first item using a self-executing async IIFE so await works
   if (allowPins && activeIdeaIdx === -1) {
     const firstItem = listEl.querySelector('.rec-item');
     if (firstItem) {
-      void onIdeaSelect(firstItem);
+      (async () => {
+        await onIdeaSelect(firstItem);
+      })();
     }
   }
 }
@@ -962,13 +931,11 @@ async function resolveChipIdeas({ selectedChips, barangays, type, prefs }) {
   const barangayList = barangays && barangays.length ? barangays : [null];
   const primaryBarangay = barangayList[0] || null;
 
-  // ── No chips, no type: fetch top ideas globally/by barangay
   if (selectedChips.length === 0 && !type) {
     const ideas = await fetchIdeas({ barangay: primaryBarangay, prefs });
     return ideas.slice(0, 3);
   }
 
-  // ── No chips but type filter selected: fetch by type, backfill if needed
   if (selectedChips.length === 0 && type) {
     const ideas = await fetchIdeas({ barangay: primaryBarangay, type, prefs });
     if (ideas.length >= 3) return ideas.slice(0, 3);
@@ -977,22 +944,10 @@ async function resolveChipIdeas({ selectedChips, barangays, type, prefs }) {
     return [...ideas, ...extra].slice(0, 3);
   }
 
-  // ── 1 chip: return exactly 1 chip (no backfill)
-  if (selectedChips.length === 1) {
-    return [selectedChips[0].label];
-  }
+  if (selectedChips.length === 1) return [selectedChips[0].label];
+  if (selectedChips.length === 2) return selectedChips.map(c => c.label);
+  if (selectedChips.length === 3) return selectedChips.map(c => c.label);
 
-  // ── 2 chips: return exactly 2 chips (no backfill)
-  if (selectedChips.length === 2) {
-    return selectedChips.map(c => c.label);
-  }
-
-  // ── 3 chips: return exactly 3 chips (no backfill)
-  if (selectedChips.length === 3) {
-    return selectedChips.map(c => c.label);
-  }
-
-  // ── 4+ chips: score each chip label by suitability, keep top 3
   const scored = [];
   for (const chip of selectedChips) {
     let totalScore = 0;
@@ -1010,16 +965,12 @@ async function resolveChipIdeas({ selectedChips, barangays, type, prefs }) {
         totalRecs += recs.length;
       }
     }
-    // If no recs found, give a default low score
     const avgScore = totalRecs > 0 ? totalScore / totalRecs : 0;
     scored.push({ label: chip.label, score: avgScore });
   }
 
-  // Sort by score (highest first) and take top 3
   scored.sort((a, b) => b.score - a.score);
-  const top3 = scored.slice(0, 3).map(item => item.label);
-
-  return top3;
+  return scored.slice(0, 3).map(item => item.label);
 }
 
 async function debugBarangayData(barangayName) {
@@ -1081,31 +1032,22 @@ async function applyFiltersAndShowRecommendations() {
   const type = selectedTypes[0] || null;
   const prefs = getPrefs();
 
-  // Get ALL selected chips (from all sections)
   const selectedChipEls = document.querySelectorAll('.filter-chip.selected');
   const selectedChips = [...selectedChipEls].map(el => ({
     label: el.dataset.chip || el.textContent.trim(),
     category: el.dataset.category || ''
   }));
 
-  // SAVE the applied filters
   lastAppliedChips = [...selectedChips];
   lastAppliedBarangays = barangays;
   lastAppliedPrefs = [...prefs];
   lastAppliedType = type;
   isFilterApplied = true;
 
-  // Require at least one filter
-  if (!barangays && !type && !prefs.length && selectedChips.length === 0) {
-    return;
-  }
+  if (!barangays && !type && !prefs.length && selectedChips.length === 0) return;
 
-  // Set current barangay context
-  if (barangays && barangays.length > 0) {
-    currentBarangayName = barangays[0];
-  }
+  if (barangays && barangays.length > 0) currentBarangayName = barangays[0];
 
-  // Zoom map to barangay
   if (currentBarangayName) {
     const bounds = getBarangayBoundsForMap(currentBarangayName);
     if (bounds && bounds.isValid()) {
@@ -1144,25 +1086,15 @@ async function applyFiltersAndShowRecommendations() {
   locPanel.classList.add('open');
 
   const listEl = document.getElementById('rec-list');
-  if (listEl) listEl.innerHTML = '<div class="rec-item" style="color:#888;font-size:13px;">Loading recommendations…</div>';
+  if (listEl) listEl.innerHTML = '<div class="rec-item" style="color:#888;font-size:13px;">Loading recommendations...</div>';
 
   lastFilteredBarangay = barangays;
   lastFilteredPrefs = prefs;
 
-  // Chips override type filter; type only used when no chips selected
   const resolvedType = selectedChips.length === 0 ? type : null;
 
-  // Get idea names via resolveChipIdeas (handles all cases)
-  let ideaNames = await resolveChipIdeas({
-    selectedChips,
-    barangays,
-    type: resolvedType,
-    prefs
-  });
+  let ideaNames = await resolveChipIdeas({ selectedChips, barangays, type: resolvedType, prefs });
 
-  // If we have selected chips, DO NOT backfill - keep exactly what resolveChipIdeas returned
-  // If no chips and we have type, keep what we got
-  // If no chips and no type, ensure we have 3
   if (selectedChips.length === 0 && !type) {
     if (ideaNames.length < 3) {
       const general = await fetchIdeas({ barangay: barangays ? barangays[0] : null, prefs });
@@ -1171,25 +1103,16 @@ async function applyFiltersAndShowRecommendations() {
     }
   }
 
-  if (barangays) {
-    loadAreaDemographics(barangays[0]);
-  }
+  if (barangays) loadAreaDemographics(barangays[0]);
 
   renderIdeaList({ names: ideaNames, barangays, prefs, allowPins: true });
 
-  // Also fetch and display pins for the selected ideas using the pin count from slider
   const top = getFilteredPinCount();
   const barangayList = barangays && barangays.length ? barangays : [null];
   const allRecs = (await Promise.all(
     ideaNames.map(idea =>
       Promise.all(barangayList.map(b =>
-        fetchIdeaLocations({
-          idea: idea.trim(),
-          barangay: b,
-          top: top,
-          prefs,
-          _t: Date.now()
-        })
+        fetchIdeaLocations({ idea: idea.trim(), barangay: b, top, prefs, _t: Date.now() })
       ))
     )
   )).flat(2);
@@ -1210,10 +1133,10 @@ function showPasigToast(msg) {
   setTimeout(() => el.classList.remove('show'), 2500);
 }
 
-// ─── VERIFIED BARANGAY CENTERS ──────────────────────────────────────────────────
+// ─── VERIFIED BARANGAY CENTERS ────────────────────────────────────────────────
 const VERIFIED_BARANGAY_CENTERS = {
   'Bagong Ilog':       [14.5740, 121.0860],
-  'Bagong Katipunan':  [14.5572, 121.0750],  // ← OFFICIAL Barangay Hall
+  'Bagong Katipunan':  [14.5572, 121.0750],
   'Bambang':           [14.5740, 121.0680],
   'Buting':            [14.5720, 121.0770],
   'Caniogan':          [14.5790, 121.0870],
@@ -1228,21 +1151,21 @@ const VERIFIED_BARANGAY_CENTERS = {
   'Palatiw':           [14.5820, 121.0960],
   'Pinagbuhatan':      [14.5610, 121.0940],
   'Pineda':            [14.5670, 121.0650],
-  'Rosario':           [14.5861, 121.0846],  // ← OFFICIAL Barangay Hall
+  'Rosario':           [14.5861, 121.0846],
   'Sagad':             [14.5590, 121.0870],
   'San Antonio':       [14.5890, 121.0870],
-  'San Joaquin':       [14.5521, 121.0798],  // ← OFFICIAL Barangay Hall
-  'San Jose':          [14.5594, 121.0734],  // ← OFFICIAL Barangay Hall
-  'San Miguel':        [14.5658, 121.0855],  // ← OFFICIAL Barangay Hall
-  'San Nicolas':       [14.5643, 121.0798],  // ← OFFICIAL Barangay Hall
-  'Santa Lucia':       [14.5843, 121.1013],  // ← OFFICIAL
-  'Santa Rosa':        [14.5589, 121.0729],  // ← OFFICIAL Barangay Hall
+  'San Joaquin':       [14.5521, 121.0798],
+  'San Jose':          [14.5594, 121.0734],
+  'San Miguel':        [14.5658, 121.0855],
+  'San Nicolas':       [14.5643, 121.0798],
+  'Santa Lucia':       [14.5843, 121.1013],
+  'Santa Rosa':        [14.5589, 121.0729],
   'Santolan':          [14.5950, 121.0800],
   'Sumilang':          [14.5750, 121.0840],
   'Ugong':             [14.5830, 121.0620]
 };
 
-// ─── FIXED handleLocationSelect ──────────────────────────────────────────────────
+// ─── HANDLE LOCATION SELECT ───────────────────────────────────────────────────
 async function handleLocationSelect(lat, lon, source = 'map') {
   hidePinRange();
   isFilterMode = false;
@@ -1302,38 +1225,6 @@ async function handleLocationSelect(lat, lon, source = 'map') {
   const badge = document.getElementById('loc-badge');
   const titleEl = document.getElementById('loc-panel-title');
   if (badge) badge.textContent = '📍 Locating…';
-
-  // ─── FIND NEAREST VERIFIED BARANGAY ────────────────────────────────────────
-  const VERIFIED_BARANGAY_CENTERS = {
-    'Bagong Ilog':      [14.5740, 121.0860],
-    'Bagong Katipunan': [14.5572, 121.0750],
-    'Bambang':          [14.5740, 121.0680],
-    'Buting':           [14.5720, 121.0770],
-    'Caniogan':         [14.5790, 121.0870],
-    'Dela Paz':         [14.5900, 121.0890],
-    'Kalawaan':         [14.5690, 121.0780],
-    'Kapasigan':        [14.5700, 121.0730],
-    'Kapitolyo':        [14.5830, 121.0630],
-    'Malinao':          [14.5810, 121.0890],
-    'Manggahan':        [14.5940, 121.0970],
-    'Maybunga':         [14.5770, 121.0920],
-    'Oranbo':           [14.5790, 121.0780],
-    'Palatiw':          [14.5820, 121.0960],
-    'Pinagbuhatan':     [14.5610, 121.0940],
-    'Pineda':           [14.5670, 121.0650],
-    'Rosario':          [14.5861, 121.0846],
-    'Sagad':            [14.5590, 121.0870],
-    'San Antonio':      [14.5890, 121.0870],
-    'San Joaquin':      [14.5521, 121.0798],
-    'San Jose':         [14.5594, 121.0734],
-    'San Miguel':       [14.5658, 121.0855],
-    'San Nicolas':      [14.5643, 121.0798],
-    'Santa Lucia':      [14.5843, 121.1013],
-    'Santa Rosa':       [14.5589, 121.0729],
-    'Santolan':         [14.5950, 121.0800],
-    'Sumilang':         [14.5750, 121.0840],
-    'Ugong':            [14.5830, 121.0620],
-  };
 
   let nearestBarangay = '';
   let minDistance = Infinity;
@@ -1396,7 +1287,6 @@ async function handleLocationSelect(lat, lon, source = 'map') {
 
   const uniqueNames = [...new Set(ideasData.data)].slice(0, 3);
 
-  // ─── RENDER 3 IDEAS — DISPLAY ONLY, NO CLICK LISTENERS ────────────────────
   listEl.innerHTML = uniqueNames.map((name, i) => `
     <div class="rec-item" data-idx="${i}" data-idea="${escapeHtml(name)}" style="cursor:default;">
       <span class="rec-item-num">${i + 1}.</span>
@@ -1410,19 +1300,6 @@ async function handleLocationSelect(lat, lon, source = 'map') {
   attachSaveRowListeners();
   markSavedInCurrentList();
 }
-
-
-map.on('click', async function (e) {
-  hidePinRange();
-  isFilterMode = false;
-  const lat = Number(e.latlng.lat);
-  const lon = Number(e.latlng.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !isInPasig(lat, lon)) {
-    showPasigToast('Location not found in Pasig.');
-    return;
-  }
-  await handleLocationSelect(lat, lon, 'map_click');
-});
 
 async function doSearch(query) {
   try {
@@ -1451,18 +1328,6 @@ async function doSearch(query) {
     console.error(err);
     showPasigToast('Something went wrong.');
   }
-}
-function showPasigToast(msg) {
-  const el = document.getElementById('pasig-toast');
-  if (!el) return;
-  el.textContent = msg || 'Location not found in Pasig.';
-  el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 2500);
-}
-
-function isInPasig(lat, lon) {
-  return lat >= PASIG_BOUNDS.minLat && lat <= PASIG_BOUNDS.maxLat &&
-    lon >= PASIG_BOUNDS.minLon && lon <= PASIG_BOUNDS.maxLon;
 }
 
 const searchInput = document.getElementById('search-input');
@@ -1604,9 +1469,9 @@ document.addEventListener('click', function (e) {
     profilePopup.classList.remove('open');
 });
 document.getElementById('logout-btn')?.addEventListener('click', () => {
-    currentUserId = null;
-    profilePopup?.classList.remove('open');
-    window.location.href = '/logout'; // destroys session → goes to login
+  currentUserId = null;
+  profilePopup?.classList.remove('open');
+  window.location.href = '/logout';
 });
 document.getElementById('profile-link-btn')?.addEventListener('click', () => {
   profilePopup?.classList.remove('open');
@@ -1617,15 +1482,12 @@ document.getElementById('cancel-profile')?.addEventListener('click', () => {
 });
 document.getElementById('confirm-profile')?.addEventListener('click', async () => {
   profileModal?.classList.remove('open');
-  
-  // Check role from /api/check-auth
   const res = await fetch('/api/check-auth');
   const data = await res.json();
-  
   if (data.isAdmin) {
-    window.location.href = '/admin/profile'; // admin profile page
+    window.location.href = '/admin/profile';
   } else {
-    window.location.href = '/dashboard/Profile.html'; // user profile page
+    window.location.href = '/dashboard/Profile.html';
   }
 });
 profileModal?.addEventListener('click', (e) => {
@@ -1708,15 +1570,6 @@ async function loadAreaDemographics(barangay, businessLine) {
   }
 }
 
-function toggleCollapse(key) {
-  const body = document.getElementById(key + '-body');
-  const arrow = document.getElementById(key + '-arrow');
-  if (!body || !arrow) return;
-  const isOpen = body.classList.contains('open');
-  body.classList.toggle('open', !isOpen);
-  arrow.classList.toggle('rotated', !isOpen);
-}
-
 function parseJumpTarget() {
   try {
     const raw = localStorage.getItem('mapJumpTarget');
@@ -1738,17 +1591,9 @@ const INDUSTRY_CHIP_MAP = {
     suggested: ['Restaurant', 'Coffee Shop', 'Bakery', 'Fast Food', 'Catering', 'Eatery'],
     full: ['Grocery', 'Sari-Sari Store', 'Panciteria', 'Canteen', 'Water Refilling Station', 'Food Cart', 'Milk Tea Shop']
   },
-  'food & beverages': {
-    suggested: ['Restaurant', 'Coffee Shop', 'Bakery', 'Fast Food', 'Catering', 'Eatery'],
-    full: ['Grocery', 'Sari-Sari Store', 'Panciteria', 'Canteen', 'Water Refilling Station', 'Food Cart', 'Milk Tea Shop']
-  },
   'retail': {
     suggested: ['Sari-Sari Store', 'Grocery', 'Cellphone Store', 'Hardware Store', 'Appliance Store'],
     full: ['Clothing Store', 'Bookstore', 'Toy Store', 'Pharmacy', 'Drug Store', 'Optical Shop', 'Pet Shop', 'Trading']
-  },
-  'retail & trading': {
-    suggested: ['Sari-Sari Store', 'Grocery', 'Cellphone Store', 'Hardware Store', 'Appliance Store'],
-    full: ['Clothing Store', 'Bookstore', 'Toy Store', 'Pharmacy', 'Drug Store', 'Optical Shop', 'Trading']
   },
   'personal care and services': {
     suggested: ['Salon', 'Barbershop', 'Spa', 'Laundry Shop', 'Massage'],
@@ -1825,40 +1670,7 @@ const GLOBAL_KEYWORD_MAP = {
   'sushi': 'Sushi Restaurant', 'bbq': 'BBQ Restaurant', 'barbecue': 'BBQ Restaurant',
   'cafe': 'Coffee Shop', 'coffee': 'Coffee Shop', 'milk tea': 'Milk Tea Shop',
   'boba': 'Milk Tea Shop', 'bakery': 'Bakery', 'bakeshop': 'Bakeshop',
-  'pastry': 'Pastry Shop', 'cake': 'Cake Shop', 'lechon': 'Lechon Restaurant',
-  'seafood': 'Seafood Restaurant', 'buffet': 'Buffet Restaurant', 'catering': 'Catering',
-  'food cart': 'Food Cart', 'lugawan': 'Lugawan', 'mami': 'Mami House',
-  'halo-halo': 'Halo-Halo Shop', 'ice cream': 'Ice Cream Shop', 'juice': 'Juice Bar',
-  'smoothie': 'Smoothie Bar', 'health food': 'Health Food Restaurant', 'vegan': 'Vegan Restaurant',
-  'canteen': 'Canteen', 'eatery': 'Eatery', 'turo-turo': 'Turo-Turo',
-  'ihawan': 'Ihawan', 'grill': 'Grill Restaurant', 'pares': 'Pares House',
-  'tapsi': 'Tapsilugan', 'silog': 'Silog Restaurant',
-  'sari-sari': 'Sari-Sari Store', 'sarisari': 'Sari-Sari Store', 'grocery': 'Grocery',
-  'minimart': 'Mini Mart', 'mini mart': 'Mini Mart', 'convenience': 'Convenience Store',
-  'hardware': 'Hardware Store', 'cellphone': 'Cellphone Store', 'gadget': 'Gadget Store',
-  'clothing': 'Clothing Store', 'ukay': 'Ukay-Ukay', 'thrift': 'Thrift Store',
-  'pharmacy': 'Pharmacy', 'drugstore': 'Drug Store', 'drug store': 'Drug Store',
-  'optical': 'Optical Shop', 'bookstore': 'Bookstore', 'toy': 'Toy Store',
-  'pet shop': 'Pet Shop', 'fish': 'Fish Shop', 'meat': 'Meat Shop',
-  'vegetables': 'Vegetable Stall', 'palengke': 'Market Stall',
-  'salon': 'Salon', 'barbershop': 'Barbershop', 'barber': 'Barbershop',
-  'spa': 'Spa', 'massage': 'Massage', 'laundry': 'Laundry Shop',
-  'nail': 'Nail Salon', 'tattoo': 'Tattoo Studio', 'gym': 'Gym',
-  'yoga': 'Yoga Studio', 'car wash': 'Car Wash', 'tailoring': 'Tailoring Shop',
-  'clinic': 'Medical Clinic', 'dental': 'Dental Clinic', 'dentist': 'Dental Clinic',
-  'laboratory': 'Laboratory', 'vet': 'Veterinary Clinic', 'veterinary': 'Veterinary Clinic',
-  'internet': 'Internet Café', 'internet cafe': 'Internet Café',
-  'printing': 'Printing Services', 'photography': 'Photography Studio',
-  'pawnshop': 'Pawnshop', 'lending': 'Lending', 'remittance': 'Money Remittance',
-  'insurance': 'Insurance', 'tutorial': 'Tutorial Center', 'review': 'Review Center',
-  'school': 'School', 'training': 'Training Center', 'driving': 'Driving School',
-  'trucking': 'Trucking', 'courier': 'Courier Service', 'delivery': 'Delivery Service',
-  'warehouse': 'Warehouse', 'hotel': 'Hotel', 'pension': 'Pension House',
-  'event': 'Event Venue', 'water refilling': 'Water Refilling Station',
-  'water': 'Water Refilling Station', 'gasoline': 'Gas Station',
-  'gas station': 'Gas Station', 'lpg': 'LPG Dealer', 'security': 'Security Agency',
-  'manpower': 'Manpower Agency', 'real estate': 'Real Estate',
-  'travel': 'Travel Agency', 'funeral': 'Funeral Services', 'cooperative': 'Cooperative'
+  'pastry': 'Pastry Shop', 'cake': 'Cake Shop'
 };
 
 const activeCustomChips = new Set();
@@ -1930,7 +1742,6 @@ function buildFilterChips(industry, subcategory) {
   if (trulyCrossIndustry.length) {
     html += `<div class="chip-group-label">Matched to your business</div><div class="chip-row">`;
     trulyCrossIndustry.forEach(label => {
-      // Check if this chip was previously selected
       const isPreviouslySelected = lastAppliedChips.some(c => c.label === label);
       const selectedClass = isPreviouslySelected ? 'selected' : '';
       html += `<span class="filter-chip filter-chip--cross ${selectedClass}" data-chip="${escapeHtml(label)}" data-category="${escapeHtml(subcategory)}">${escapeHtml(label)}</span>`;
@@ -1972,21 +1783,14 @@ function buildFilterChips(industry, subcategory) {
   chipContainer.innerHTML = html;
   if (chipSection) chipSection.style.display = 'block';
 
-  // Restore the activeCustomChips from lastAppliedChips
   activeCustomChips.clear();
   lastAppliedChips.forEach(chip => {
-    if (chip.label) {
-      activeCustomChips.add(chip.label);
-    }
+    if (chip.label) activeCustomChips.add(chip.label);
   });
 
   chipContainer.querySelectorAll('.filter-chip').forEach(chip => {
     const chipValue = chip.dataset.chip || '';
-
-    if (activeCustomChips.has(chipValue)) {
-      chip.classList.add('selected');
-    }
-
+    if (activeCustomChips.has(chipValue)) chip.classList.add('selected');
     chip.addEventListener('click', (e) => {
       e.stopPropagation();
       chip.classList.toggle('selected');
@@ -2101,21 +1905,16 @@ function applyIndustryPersonalization(industry, industrySpecific) {
   renderPersonalizationBanner(industry, industrySpecific);
   buildFilterChips(industry, industrySpecific);
 }
-// Close filter panel when clicking X button
+
 document.getElementById('close-filter-panel')?.addEventListener('click', () => {
   filterPanel.classList.remove('open');
 });
 
-// Reset filter button inside panel
 document.getElementById('reset-filter-btn')?.addEventListener('click', () => {
-  // Uncheck all checkboxes
   document.querySelectorAll('.filter-panel-body input[type="checkbox"]').forEach(cb => cb.checked = false);
-  // Clear chips
   clearChipSelections();
-  // Clear pins
   clearBusinessMarkers();
   clearClickedMarker();
-  // Reset state
   isFilterMode = false;
   isFilterApplied = false;
   lastAppliedChips = [];
@@ -2124,7 +1923,6 @@ document.getElementById('reset-filter-btn')?.addEventListener('click', () => {
   lastAppliedType = null;
   hidePinRange();
   setPinDefault();
-  // Clear recommendations
   const listEl = document.getElementById('rec-list');
   if (listEl) listEl.innerHTML = '';
   locPanel?.classList.remove('open');
@@ -2132,7 +1930,35 @@ document.getElementById('reset-filter-btn')?.addEventListener('click', () => {
 
 // ─── DOM CONTENT LOADED ───────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-  // Get current user ID first for report isolation
+  if (typeof L === 'undefined') {
+    console.error('Leaflet not loaded! Ensure leaflet.css and leaflet.js are in <head> before this script.');
+    return;
+  }
+
+  // ── Initialize map inside DOMContentLoaded so #map is guaranteed to exist ──
+  map = L.map('map').setView([14.5764, 121.0851], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors', maxZoom: 19
+  }).addTo(map);
+
+  // Recalculate container size in case CSS layout wasn't fully applied yet
+  setTimeout(() => map.invalidateSize(), 100);
+
+  // Attach map click handler here since map is now initialized
+  map.on('click', async function (e) {
+    hidePinRange();
+    isFilterMode = false;
+    const lat = Number(e.latlng.lat);
+    const lon = Number(e.latlng.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || !isInPasig(lat, lon)) {
+      showPasigToast('Location not found in Pasig.');
+      return;
+    }
+    await handleLocationSelect(lat, lon, 'map_click');
+  });
+
+  console.log('Map initialized successfully.');
+
   try {
     const authRes = await fetch('/api/check-auth');
     const authData = await authRes.json();

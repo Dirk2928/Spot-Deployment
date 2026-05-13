@@ -484,24 +484,70 @@ function renderFilteredReports() {
   attachRowClicks();
 }
 
-function readLocalLogs(){
-  const keys = Object.keys(localStorage).filter(k => k.startsWith('reportLogs_'));
-  
-  if (keys.length > 0) {
+function emptyLogs() {
+  return { searchPins: [], recommendations: [], saved: [] };
+}
+
+function normalizeLogs(logs) {
+  const safe = logs || {};
+  return {
+    searchPins: Array.isArray(safe.searchPins) ? safe.searchPins : [],
+    recommendations: Array.isArray(safe.recommendations) ? safe.recommendations : [],
+    saved: Array.isArray(safe.saved) ? safe.saved : []
+  };
+}
+
+function getReportStorageKey(userId) {
+  return userId ? `reportLogs_${userId}` : 'reportLogs_anonymous';
+}
+
+function readLocalLogs(userId = null){
+  const preferredKeys = [
+    getReportStorageKey(userId),
+    'reportLogs',
+    ...Object.keys(localStorage).filter(k => k.startsWith('reportLogs_'))
+  ];
+
+  for (const key of preferredKeys) {
+    if (!key) continue;
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
     try {
-      const v = JSON.parse(localStorage.getItem(keys[0]) || '{"searchPins":[],"recommendations":[],"saved":[]}');
-      return v || {searchPins:[], recommendations:[], saved:[]};
-    } catch {
-      return {searchPins:[], recommendations:[], saved:[]};
+      return normalizeLogs(JSON.parse(raw));
+    } catch (err) {
+      console.warn('Failed to parse report logs:', err);
+      return emptyLogs();
     }
   }
-  
+
+  return emptyLogs();
+}
+
+function writeLocalLogs(userId, logs) {
   try {
-    const v = JSON.parse(localStorage.getItem('reportLogs') || '{"searchPins":[],"recommendations":[],"saved":[]}');
-    return v || {searchPins:[], recommendations:[], saved:[]};
-  } catch {
-    return {searchPins:[], recommendations:[], saved:[]};
+    localStorage.setItem(getReportStorageKey(userId), JSON.stringify(normalizeLogs(logs)));
+  } catch (err) {
+    console.warn('Failed to cache report logs:', err);
   }
+}
+
+async function getCurrentUserIdForReports() {
+  try {
+    const response = await fetch('/api/check-auth', { credentials: 'include' });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.user?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchRemoteLogs() {
+  const response = await fetch('/api/report/history', { credentials: 'include' });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const payload = await response.json();
+  if (!payload?.success) throw new Error(payload?.message || 'Failed to fetch report history');
+  return normalizeLogs(payload.data);
 }
 
 function setJumpTarget(payload){
@@ -538,10 +584,22 @@ function attachRowClicks(){
 }
 
 async function renderReports(){
-  const local = readLocalLogs();
-  allSearchPins = local.searchPins || [];
-  allRecommendations = local.recommendations || [];
-  allSaved = local.saved || [];
+  const userId = await getCurrentUserIdForReports();
+  const local = readLocalLogs(userId);
+
+  allSearchPins = local.searchPins;
+  allRecommendations = local.recommendations;
+  allSaved = local.saved;
+
+  try {
+    const remote = await fetchRemoteLogs();
+    allSearchPins = remote.searchPins;
+    allRecommendations = remote.recommendations;
+    allSaved = remote.saved;
+    writeLocalLogs(userId, remote);
+  } catch (err) {
+    console.warn('Using cached report logs:', err);
+  }
   
   allSearchPins.sort((a, b) => new Date(b.at) - new Date(a.at));
   allRecommendations.sort((a, b) => new Date(b.at) - new Date(a.at));
@@ -555,6 +613,12 @@ window.renderReports = renderReports;
 // CLEAR BUTTON
 const clearBtn = document.getElementById('clear-reports-btn');
 clearBtn?.addEventListener('click', async () => {
+  try {
+    await fetch('/api/report/history', { method: 'DELETE', credentials: 'include' });
+  } catch (err) {
+    console.warn('Failed to clear remote report history:', err);
+  }
+
   const keys = Object.keys(localStorage).filter(k => k.startsWith('reportLogs'));
   keys.forEach(k => localStorage.removeItem(k));
   localStorage.removeItem('reportLogs');

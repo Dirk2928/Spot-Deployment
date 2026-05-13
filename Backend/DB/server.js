@@ -1890,6 +1890,86 @@ app.get("/api/debug-session", (req, res) => {
 // REPORT ROUTES - FIXED (using legendDB instead of pool)
 // =============================================
 
+app.get("/api/report/history", requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+
+    const [searchRows, recRows, savedRows] = await Promise.all([
+      legendDB.query(
+        `SELECT query, source, lat, lon, created_at
+         FROM search_pin_history
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 200`,
+        [userId]
+      ),
+      legendDB.query(
+        `SELECT recommended_item_id, source, lat, lon, created_at
+         FROM recommendation_history
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 200`,
+        [userId]
+      ),
+      legendDB.query(
+        `SELECT business_type, barangay, lat, lon, saved_at, was_removed
+         FROM saved_history
+         WHERE user_id = ?
+         ORDER BY saved_at DESC
+         LIMIT 200`,
+        [userId]
+      )
+    ]);
+
+    const searchPins = (searchRows[0] || []).map((row) => ({
+      at: row.created_at,
+      locationName: row.query || '',
+      query: row.query || '',
+      source: row.source || 'map',
+      lat: row.lat,
+      lon: row.lon
+    }));
+
+    const recommendations = (recRows[0] || []).map((row) => ({
+      at: row.created_at,
+      idea: row.recommended_item_id || '',
+      area: row.source || '',
+      source: row.source || '',
+      lat: row.lat,
+      lon: row.lon
+    }));
+
+    const saved = (savedRows[0] || []).map((row) => ({
+      at: row.saved_at,
+      action: row.was_removed ? 'removed' : 'saved',
+      business_type: row.business_type || '',
+      barangay: row.barangay || '',
+      lat: row.lat,
+      lon: row.lon
+    }));
+
+    res.json({ success: true, data: { searchPins, recommendations, saved } });
+  } catch (err) {
+    console.error("report history read error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.delete("/api/report/history", requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    await Promise.all([
+      legendDB.query(`DELETE FROM search_pin_history WHERE user_id = ?`, [userId]),
+      legendDB.query(`DELETE FROM recommendation_history WHERE user_id = ?`, [userId]),
+      legendDB.query(`DELETE FROM saved_history WHERE user_id = ?`, [userId])
+    ]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("report history clear error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 app.post("/api/report/search-pin", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;

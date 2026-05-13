@@ -12,17 +12,23 @@ const app = express();
 
 testConnection();
 
+// ---------------
+// TRUST PROXY - MUST be before session middleware for deployed environments
+// ---------------
+app.set('trust proxy', 1);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(session({
-  secret: process.env.SESSION_SECRET || "secret",
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
   resave: false,
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000
+    maxAge: 24 * 60 * 60 * 1000,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
 
@@ -45,6 +51,16 @@ const transporter = nodemailer.createTransport({
   connectionTimeout: 10000,
   greetingTimeout: 10000,
   socketTimeout: 20000
+});
+
+// Verify email transporter on startup
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("❌ Email transporter error:", error.message);
+    console.error("   Make sure EMAIL_USER and EMAIL_PASS env variables are set correctly.");
+  } else {
+    console.log("✅ Email transporter ready");
+  }
 });
 
 async function sendVerificationCode(email, username, code) {
@@ -730,8 +746,16 @@ app.post("/login", async (req, res) => {
       affiliation: user.affiliation, industry: user.industry || '',
       industry_specific: user.industry_specific || '', role: user.role || "user"
     };
-    const redirectUrl = user.role === "admin" ? "/admin" : "/dashboard";
-    res.json({ success: true, redirect: redirectUrl, isAdmin: user.role === "admin" });
+
+    // Save the session explicitly before redirecting to avoid race conditions
+    req.session.save((err) => {
+      if (err) {
+        console.error("Session save error:", err);
+        return res.status(500).json({ success: false, message: "Session error, please try again" });
+      }
+      const redirectUrl = user.role === "admin" ? "/admin" : "/dashboard";
+      res.json({ success: true, redirect: redirectUrl, isAdmin: user.role === "admin" });
+    });
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -774,7 +798,9 @@ app.post("/verify-forgot-code", async (req, res) => {
       pendingPasswordResets.delete(email);
       return res.status(400).json({ success: false, message: "Code expired" });
     }
-    if (data.code !== code) return res.status(400).json({ success: false, message: "Invalid code" });
+    if (data.code !== String(code).trim()) {
+      return res.status(400).json({ success: false, message: "Invalid code" });
+    }
     return res.json({ success: true });
   } catch (err) {
     console.error("Verify forgot code error:", err);

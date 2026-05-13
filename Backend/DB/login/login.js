@@ -404,6 +404,7 @@ async function verifyForgotCode() {
   const data = await res.json();
 
   if (res.ok && data.success) {
+    SwalFixed.close(); // ✅ close loading modal
     document.getElementById("forgot-verification-section").style.display = "none";
     document.getElementById("reset-password-section").style.display = "block";
   } else {

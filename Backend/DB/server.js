@@ -2050,6 +2050,28 @@ app.post("/api/report/saved", requireAuth, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// Debug endpoint to check file paths
+app.get("/api/debug-paths", (req, res) => {
+  const fs = require('fs');
+  
+  const paths = {
+    frontendPath: frontendPath,
+    dashboardPath: dashboardPath,
+    adminDashboardPath: adminDashboardPath,
+    __dirname: __dirname,
+    files: {
+      loginExists: fs.existsSync(path.join(frontendPath, "login.html")),
+      dashboardExists: fs.existsSync(path.join(dashboardPath, "dashboard.html")),
+      adminExists: fs.existsSync(path.join(adminDashboardPath, "admindb.html"))
+    },
+    fullLoginPath: path.join(frontendPath, "login.html"),
+    fullDashboardPath: path.join(dashboardPath, "dashboard.html"),
+    fullAdminPath: path.join(adminDashboardPath, "admindb.html")
+  };
+  
+  res.json(paths);
+});
 // ─── STATIC FILES ─────────────────────────────────────────────────────────────
 app.use(express.static(frontendPath));
 app.use("/dashboard", express.static(dashboardPath));

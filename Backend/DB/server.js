@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
 const { legendDB, geoDB, testConnection } = require("./db_config");
 const nodemailer = require("nodemailer");
+const fs = require("fs");
 
 const app = express();
 
@@ -15,19 +16,98 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(session({
-  secret: "secret",
+  secret: process.env.SESSION_SECRET || "secret",
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false }
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000
+  }
 }));
 
 // ---------------
-// PATH CONFIGURATIONS - UPDATE THESE TO MATCH YOUR FOLDER STRUCTURE
+// PATH CONFIGURATIONS
 // ---------------
 const frontendPath = path.join(__dirname, "login");
-const dashboardPath = path.join(__dirname, "..", "Dashboard");
+const dashboardPath = path.join(__dirname, "..", "dashboard");
 const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
 
+// ---------------
+// EMAIL TRANSPORTER - with timeout settings and env variable support
+// ---------------
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER || "ballesterosyther1@gmail.com",
+    pass: process.env.EMAIL_PASS || "fsvq erkw plhi qwez"
+  },
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 20000
+});
+
+async function sendVerificationCode(email, username, code) {
+  console.log(`Attempting to send email to: ${email}`);
+  console.log(`Verification code: ${code}`);
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"EduHub" <${process.env.EMAIL_USER || "ballesterosyther1@gmail.com"}>`,
+      to: email,
+      subject: "Email Verification Code",
+      html: `<p>Hello ${username},</p>
+             <p>Your verification code is: <strong>${code}</strong></p>
+             <p>This code expires in 10 minutes.</p>
+             <p>Enter this code in the app to verify your account.</p>`
+    });
+    console.log("Email sent successfully:", info.messageId);
+    return true;
+  } catch (err) {
+    console.error("Email sending failed:", err.message);
+    return false;
+  }
+}
+
+// ---------------
+// MIDDLEWARE
+// ---------------
+function requireAuth(req, res, next) {
+  if (!req.session.user) return res.status(401).json({ success: false, message: "Not authenticated" });
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.session.user) return res.status(401).json({ success: false, message: "Not authenticated" });
+  if (req.session.user.role !== "admin") return res.status(403).json({ success: false, message: "Admin access required" });
+  next();
+}
+
+function requireAdminPage(req, res, next) {
+  if (!req.session.user) return res.redirect("/");
+  if (req.session.user.role !== "admin") return res.redirect("/dashboard");
+  next();
+}
+
+// ---------------
+// RATE LIMITERS
+// ---------------
+const debugRouteRateLimit = rateLimit({
+  windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false
+});
+const reportRouteRateLimit = rateLimit({
+  windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false
+});
+
+// ---------------
+// IN-MEMORY STORES
+// ---------------
+const pendingVerifications = new Map();
+const pendingPasswordResets = new Map();
+
+// ---------------
+// CONSTANTS
+// ---------------
 const PASIG_BOUNDS = {
   minLat: 14.5350,
   maxLat: 14.6200,
@@ -36,7 +116,6 @@ const PASIG_BOUNDS = {
 };
 const IDEA_PIN_MIN_GAP_METERS = 200;
 
-// ─── BARANGAY BOUNDING BOXES ──────────────────────────────────────────────────
 const BARANGAY_BOUNDS = {
   'bagong ilog':      { minLat: 14.570, maxLat: 14.578, minLon: 121.082, maxLon: 121.089 },
   'bagong katipunan': { minLat: 14.574, maxLat: 14.584, minLon: 121.062, maxLon: 121.073 },
@@ -96,6 +175,40 @@ const CENTROID_FALLBACK = {
   'santa lucia':      { lat: 14.5630, lon: 121.0851 },
 };
 
+const TYPE_TO_CATEGORY = {
+  FOOD: "Food & Beverage", RETAIL: "Retail & Trading", PERSONAL: "Beauty & Wellness",
+  TECH: "IT & Software", WHOLESALE: "Wholesale & Import", MANUFACTURING: "Manufacturing",
+  IT: "IT & Software", BPO: "BPO & Call Center", CONSTRUCTION: "Construction",
+  FINANCE: "Finance & Banking", EDUCATION: "Education", HEALTHCARE: "Healthcare",
+  ENERGY: "Energy & Fuel", LOGISTICS: "Logistics & Transport", HOSPITALITY: "Hospitality",
+  SECURITY: "Security", LEGAL: "Legal & Consulting", MARKETING: "Marketing & Advertising",
+  ADMIN: "HR & Manpower", GENERAL: "General Services"
+};
+
+const CATEGORY_ALIASES = {
+  "food and beverages": "Food & Beverage", "food & beverages": "Food & Beverage",
+  "food and beverage": "Food & Beverage", "food & beverage": "Food & Beverage",
+  "retail": "Retail & Trading", "retail & trading": "Retail & Trading",
+  "retail and trading": "Retail & Trading", "personal care and services": "Beauty & Wellness",
+  "beauty & wellness": "Beauty & Wellness", "beauty and wellness": "Beauty & Wellness",
+  "technology digital service": "IT & Software", "it & software": "IT & Software",
+  "it and software": "IT & Software", "healthcare": "Healthcare",
+  "logistics & transport": "Logistics & Transport", "logistics and transport": "Logistics & Transport",
+  "hospitality": "Hospitality", "education": "Education",
+  "finance & banking": "Finance & Banking", "finance and banking": "Finance & Banking",
+  "wholesale & import": "Wholesale & Import", "wholesale and import": "Wholesale & Import",
+  "construction": "Construction", "bpo & call center": "BPO & Call Center",
+  "bpo and call center": "BPO & Call Center", "energy & fuel": "Energy & Fuel",
+  "energy and fuel": "Energy & Fuel", "security services": "Security",
+  "legal & consulting": "Legal & Consulting", "legal and consulting": "Legal & Consulting",
+  "marketing & advertising": "Marketing & Advertising", "marketing and advertising": "Marketing & Advertising",
+  "manufacturing": "Manufacturing", "hr & manpower": "HR & Manpower",
+  "hr and manpower": "HR & Manpower", "general services": "General Services"
+};
+
+// ---------------
+// HELPER FUNCTIONS
+// ---------------
 function generateVerificationCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -173,6 +286,32 @@ function ageScore(ageGroup) {
   return good.includes(ageGroup) ? 1 : 0;
 }
 
+function safeParseCoord(val) {
+  if (val === null || val === undefined || val === '' || val === 'null' || val === 'undefined') return null;
+  const n = parseFloat(val);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeCategoryInput(value) {
+  const raw = (value || "").toString().trim();
+  if (!raw) return "";
+  const key = raw.toLowerCase();
+  return CATEGORY_ALIASES[key] || TYPE_TO_CATEGORY[raw] || raw;
+}
+
+function dedupeByLatLon(rows, precision = 5) {
+  const seen = new Set();
+  return rows.filter(r => {
+    const lat = Number(r.lat);
+    const lon = Number(r.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+    const key = `${lat.toFixed(precision)}|${lon.toFixed(precision)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function isSubCategorySaturated(barangay, subCategory) {
   if (!subCategory || !barangay) return false;
   const stopWords = [
@@ -204,109 +343,6 @@ async function isSubCategorySaturated(barangay, subCategory) {
   const [rows] = await geoDB.query(sql, params);
   const count = rows[0]?.cnt || 0;
   return count >= 2;
-}
-
-function dedupeByLatLon(rows, precision = 5) {
-  const seen = new Set();
-  return rows.filter(r => {
-    const lat = Number(r.lat);
-    const lon = Number(r.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
-    const key = `${lat.toFixed(precision)}|${lon.toFixed(precision)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-// ─── HELPER: safely parse a lat/lon value from request body ──────────────────
-// Handles null, undefined, the string "null", empty string, and NaN.
-function safeParseCoord(val) {
-  if (val === null || val === undefined || val === '' || val === 'null' || val === 'undefined') return null;
-  const n = parseFloat(val);
-  return Number.isFinite(n) ? n : null;
-}
-
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: "ballesterosyther1@gmail.com",
-    pass: "fsvq erkw plhi qwez"
-  }
-});
-
-async function sendVerificationCode(email, username, code) {
-  await transporter.sendMail({
-    from: "ballesterosyther1@gmail.com",
-    to: email,
-    subject: "Email Verification Code",
-    html: `<p>Hello ${username},</p><p>Your verification code is: <strong>${code}</strong></p><p>This code expires in 10 minutes.</p>`
-  });
-}
-
-function requireAuth(req, res, next) {
-  if (!req.session.user) return res.status(401).json({ success: false, message: "Not authenticated" });
-  next();
-}
-
-function requireAdmin(req, res, next) {
-  if (!req.session.user) return res.status(401).json({ success: false, message: "Not authenticated" });
-  if (req.session.user.role !== "admin") return res.status(403).json({ success: false, message: "Admin access required" });
-  next();
-}
-
-function requireAdminPage(req, res, next) {
-  if (!req.session.user) return res.redirect("/");
-  if (req.session.user.role !== "admin") return res.redirect("/dashboard");
-  next();
-}
-
-const debugRouteRateLimit = rateLimit({
-  windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false
-});
-const reportRouteRateLimit = rateLimit({
-  windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false
-});
-
-const pendingVerifications = new Map();
-const pendingPasswordResets = new Map();
-
-const TYPE_TO_CATEGORY = {
-  FOOD: "Food & Beverage", RETAIL: "Retail & Trading", PERSONAL: "Beauty & Wellness",
-  TECH: "IT & Software", WHOLESALE: "Wholesale & Import", MANUFACTURING: "Manufacturing",
-  IT: "IT & Software", BPO: "BPO & Call Center", CONSTRUCTION: "Construction",
-  FINANCE: "Finance & Banking", EDUCATION: "Education", HEALTHCARE: "Healthcare",
-  ENERGY: "Energy & Fuel", LOGISTICS: "Logistics & Transport", HOSPITALITY: "Hospitality",
-  SECURITY: "Security", LEGAL: "Legal & Consulting", MARKETING: "Marketing & Advertising",
-  ADMIN: "HR & Manpower", GENERAL: "General Services"
-};
-
-const CATEGORY_ALIASES = {
-  "food and beverages": "Food & Beverage", "food & beverages": "Food & Beverage",
-  "food and beverage": "Food & Beverage", "food & beverage": "Food & Beverage",
-  "retail": "Retail & Trading", "retail & trading": "Retail & Trading",
-  "retail and trading": "Retail & Trading", "personal care and services": "Beauty & Wellness",
-  "beauty & wellness": "Beauty & Wellness", "beauty and wellness": "Beauty & Wellness",
-  "technology digital service": "IT & Software", "it & software": "IT & Software",
-  "it and software": "IT & Software", "healthcare": "Healthcare",
-  "logistics & transport": "Logistics & Transport", "logistics and transport": "Logistics & Transport",
-  "hospitality": "Hospitality", "education": "Education",
-  "finance & banking": "Finance & Banking", "finance and banking": "Finance & Banking",
-  "wholesale & import": "Wholesale & Import", "wholesale and import": "Wholesale & Import",
-  "construction": "Construction", "bpo & call center": "BPO & Call Center",
-  "bpo and call center": "BPO & Call Center", "energy & fuel": "Energy & Fuel",
-  "energy and fuel": "Energy & Fuel", "security services": "Security",
-  "legal & consulting": "Legal & Consulting", "legal and consulting": "Legal & Consulting",
-  "marketing & advertising": "Marketing & Advertising", "marketing and advertising": "Marketing & Advertising",
-  "manufacturing": "Manufacturing", "hr & manpower": "HR & Manpower",
-  "hr and manpower": "HR & Manpower", "general services": "General Services"
-};
-
-function normalizeCategoryInput(value) {
-  const raw = (value || "").toString().trim();
-  if (!raw) return "";
-  const key = raw.toLowerCase();
-  return CATEGORY_ALIASES[key] || TYPE_TO_CATEGORY[raw] || raw;
 }
 
 function getBusinessProfile(businessType, category = null) {
@@ -604,11 +640,19 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(frontendPath, "login.html"));
 });
 
+// ---------------
+// REGISTER - with graceful email failure handling
+// ---------------
 app.post("/register", async (req, res) => {
   try {
     const { fullname, email, username, password, affiliation, industry, industry_specific } = req.body;
+
+    console.log("Registration attempt for:", email);
+
     const [existing] = await legendDB.query("SELECT id FROM users WHERE email = ? OR username = ?", [email, username]);
-    if (existing.length > 0) return res.status(400).json({ success: false, message: "Email or username already exists" });
+    if (existing.length > 0) {
+      return res.status(400).json({ success: false, message: "Email or username already exists" });
+    }
 
     const hashed = await bcrypt.hash(password, 10);
     const code = generateVerificationCode();
@@ -622,13 +666,28 @@ app.post("/register", async (req, res) => {
       code, codeExpiresAt: expiry
     });
 
-    await sendVerificationCode(email, username, code);
-    res.json({ success: true, tempUserId: tempId });
+    const emailSent = await sendVerificationCode(email, username, code);
+
+    if (!emailSent) {
+      console.warn("Email failed to send for:", email);
+    }
+
+    res.json({
+      success: true,
+      tempUserId: tempId,
+      message: emailSent
+        ? "Verification code sent!"
+        : "Account created! Please contact support for verification."
+    });
   } catch (err) {
+    console.error("Register error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
+// ---------------
+// VERIFY CODE
+// ---------------
 app.post("/verify-code", async (req, res) => {
   try {
     const { tempUserId, code } = req.body;
@@ -648,10 +707,14 @@ app.post("/verify-code", async (req, res) => {
     pendingVerifications.delete(tempUserId);
     res.json({ success: true });
   } catch (err) {
+    console.error("Verify code error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
+// ---------------
+// LOGIN
+// ---------------
 app.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -667,13 +730,17 @@ app.post("/login", async (req, res) => {
       affiliation: user.affiliation, industry: user.industry || '',
       industry_specific: user.industry_specific || '', role: user.role || "user"
     };
-    const redirectUrl = user.role === "admin" ? "/dashboard" : "/dashboard";
+    const redirectUrl = user.role === "admin" ? "/admin" : "/dashboard";
     res.json({ success: true, redirect: redirectUrl, isAdmin: user.role === "admin" });
   } catch (err) {
+    console.error("Login error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
+// ---------------
+// FORGOT PASSWORD
+// ---------------
 app.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
@@ -684,9 +751,16 @@ app.post("/forgot-password", async (req, res) => {
     const expiry = new Date();
     expiry.setMinutes(expiry.getMinutes() + 10);
     pendingPasswordResets.set(email, { code, codeExpiresAt: expiry });
-    await sendVerificationCode(email, user.username, code);
+
+    const emailSent = await sendVerificationCode(email, user.username, code);
+    if (!emailSent) {
+      console.warn("Password reset email failed to send for:", email);
+      return res.status(500).json({ success: false, message: "Failed to send reset email. Please try again." });
+    }
+
     return res.json({ success: true, message: "Reset code sent" });
   } catch (err) {
+    console.error("Forgot password error:", err);
     return res.status(500).json({ success: false, message: "Email sending failed" });
   }
 });
@@ -703,6 +777,7 @@ app.post("/verify-forgot-code", async (req, res) => {
     if (data.code !== code) return res.status(400).json({ success: false, message: "Invalid code" });
     return res.json({ success: true });
   } catch (err) {
+    console.error("Verify forgot code error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -717,10 +792,14 @@ app.post("/reset-password", async (req, res) => {
     pendingPasswordResets.delete(email);
     return res.json({ success: true });
   } catch (err) {
+    console.error("Reset password error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
+// ---------------
+// LOGOUT
+// ---------------
 app.get("/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) return res.status(500).json({ success: false });
@@ -735,8 +814,26 @@ app.post("/api/logout", (req, res) => {
   });
 });
 
+// ---------------
+// DASHBOARD - with multi-path fallback
+// ---------------
 app.get("/dashboard", requireAuth, (req, res) => {
-  res.sendFile(path.join(dashboardPath, "dashboard.html"));
+  const possiblePaths = [
+    path.join(dashboardPath, "dashboard.html"),
+    path.join(__dirname, "..", "Dashboard", "dashboard.html"),
+    path.join(__dirname, "..", "..", "dashboard", "dashboard.html"),
+    path.join(__dirname, "..", "..", "Dashboard", "dashboard.html")
+  ];
+
+  for (const filePath of possiblePaths) {
+    if (fs.existsSync(filePath)) {
+      console.log("Serving dashboard from:", filePath);
+      return res.sendFile(filePath);
+    }
+  }
+
+  console.error("Dashboard not found. Tried:", possiblePaths);
+  res.status(404).send("Dashboard not found. Please check file location.");
 });
 
 app.get("/dashboard/profile", requireAuth, (req, res) => {
@@ -745,6 +842,21 @@ app.get("/dashboard/profile", requireAuth, (req, res) => {
 
 app.get("/admin", requireAdminPage, (req, res) => {
   res.sendFile(path.join(adminDashboardPath, "admindb.html"));
+});
+
+app.get("/admin/profile", requireAdminPage, (req, res) => {
+  res.sendFile(path.join(adminDashboardPath, "admindb.html"));
+});
+
+// ---------------
+// AUTH & USER
+// ---------------
+app.get("/api/check-auth", (req, res) => {
+  if (!req.session.user) return res.json({ authenticated: false });
+  res.json({
+    authenticated: true, isAdmin: req.session.user.role === "admin",
+    user: { id: req.session.user.id, fullname: req.session.user.fullname, username: req.session.user.username, role: req.session.user.role }
+  });
 });
 
 app.get("/api/me", requireAuth, async (req, res) => {
@@ -764,147 +876,6 @@ app.get("/api/me", requireAuth, async (req, res) => {
     });
   } catch (err) {
     res.json({ success: true, affiliation: '', industry: '', industry_specific: '' });
-  }
-});
-
-app.get("/api/admin/test-report-tables", requireAdmin, async (req, res) => {
-  try {
-    const [tables] = await legendDB.query(`
-      SELECT TABLE_NAME 
-      FROM information_schema.TABLES 
-      WHERE TABLE_SCHEMA = DATABASE() 
-      AND TABLE_NAME IN ('search_pin_history', 'recommendation_history', 'saved_history')
-    `);
-
-    const [searchCount] = await legendDB.query(`SELECT COUNT(*) as cnt FROM search_pin_history`);
-    const [recCount] = await legendDB.query(`SELECT COUNT(*) as cnt FROM recommendation_history`);
-    const [savedCount] = await legendDB.query(`SELECT COUNT(*) as cnt FROM saved_history`);
-
-    res.json({
-      tablesFound: tables.map(t => t.TABLE_NAME),
-      counts: {
-        search_pin_history: searchCount[0].cnt,
-        recommendation_history: recCount[0].cnt,
-        saved_history: savedCount[0].cnt
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/admin/users", requireAdmin, async (req, res) => {
-  try {
-    const [rows] = await legendDB.query(
-      "SELECT id, fullname, username, email, affiliation FROM users WHERE role != 'admin' ORDER BY fullname"
-    );
-    res.json({ success: true, users: rows });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-app.get("/api/smart-chips", requireAuth, async (req, res) => {
-  try {
-    const { category = "", subcategory = "" } = req.query;
-    const normalizedCategory = normalizeCategoryInput(category);
-    if (!normalizedCategory) {
-      return res.json({ success: true, data: { suggested: [], full: [], cross: [] } });
-    }
-    const CATEGORY_MAP = {
-      "Food and Beverages": ["Restaurant", "Coffee Shop", "Milk Tea Shop", "Pizza Shop", "Burger Restaurant", "Fried Chicken Restaurant", "Bakery", "Fast Food Restaurant", "Cafe"],
-      "Retail": ["Convenience Store", "Sari-Sari Store", "Grocery / Supermarket", "General Business"],
-      "Personal Care and Services": ["Salon / Barbershop", "Spa & Massage", "Laundry Shop", "Repair Shop"],
-      "Technology": ["Internet Cafe", "Computer Shop", "IT Services"],
-      "Digital Service": ["Printing Shop", "Online Services", "Digital Marketing"],
-      "Wholesale & Import": ["Wholesale Store", "Importer", "Trading Business"],
-      "Manufacturing": ["Factory", "Production", "Industrial Business"],
-      "IT & Software": ["Software Company", "IT Services", "System Developer"],
-      "BPO & Call Center": ["Call Center", "BPO Services"],
-      "Construction": ["Construction Company", "Contractor"],
-      "Finance & Banking": ["Bank", "Lending Company", "Financial Services"],
-      "Education": ["School", "Training Center", "Tutorial Center"],
-      "Healthcare": ["Clinic", "Hospital", "Pharmacy"],
-      "Energy and Fuel": ["Gas Station", "Fuel Supplier"],
-      "Logistics & Transport": ["Delivery Service", "Transport Service", "Logistics Company"],
-      "Hospitality": ["Hotel", "Resort", "Lodging"],
-      "Security Services": ["Security Agency"],
-      "Legal & Consulting": ["Law Firm", "Consulting Firm"],
-      "Marketing & Advertising": ["Marketing Agency", "Advertising Agency"],
-      "Admin & Management": ["Office Services", "Admin Services"],
-      "General Services": ["General Business"]
-    };
-    const allowed = CATEGORY_MAP[normalizedCategory] || [];
-    const [rows] = await geoDB.query(
-      `SELECT business_trade_name, category, COUNT(*) AS cnt
-       FROM businesses WHERE category = ? AND business_trade_name IS NOT NULL AND business_trade_name <> ''
-       GROUP BY business_trade_name, category`,
-      [normalizedCategory]
-    );
-    function toGenericType(name) {
-      const str = (name || "").toLowerCase();
-      if (/coffee|cafe|brew|starbucks/.test(str)) return "Coffee Shop";
-      if (/milk.?tea|boba|gong cha|chatime/.test(str)) return "Milk Tea Shop";
-      if (/pizza|pizzeria/.test(str)) return "Pizza Shop";
-      if (/burger|jollibee|mcdo|mcdonald/.test(str)) return "Burger Restaurant";
-      if (/chicken|fried chicken|bonchon/.test(str)) return "Fried Chicken Restaurant";
-      if (/bakery|bakeshop|tinapay/.test(str)) return "Bakery";
-      if (/fast.?food/.test(str)) return "Fast Food Restaurant";
-      if (/restaurant|eatery|diner/.test(str)) return "Restaurant";
-      if (/cafe/.test(str)) return "Cafe";
-      if (/grocery|supermarket|palengke/.test(str)) return "Grocery / Supermarket";
-      if (/sari.?sari/.test(str)) return "Sari-Sari Store";
-      if (/convenience|7.?eleven|minimart/.test(str)) return "Convenience Store";
-      if (/laundry|washing/.test(str)) return "Laundry Shop";
-      if (/salon|barber/.test(str)) return "Salon / Barbershop";
-      if (/spa|massage/.test(str)) return "Spa & Massage";
-      if (/repair|vulcanizing/.test(str)) return "Repair Shop";
-      if (/internet|computer/.test(str)) return "Internet Cafe";
-      if (/printing|photocopy/.test(str)) return "Printing Shop";
-      if (/clinic/.test(str)) return "Clinic";
-      if (/hospital/.test(str)) return "Hospital";
-      if (/pharmacy|drugstore/.test(str)) return "Pharmacy";
-      if (/bank/.test(str)) return "Bank";
-      return "General Business";
-    }
-    const map = new Map();
-    rows.forEach((r) => {
-      const generic = toGenericType(r.business_trade_name);
-      if (!map.has(generic)) map.set(generic, { label: generic, category: r.category || normalizedCategory, cnt: 0 });
-      map.get(generic).cnt += r.cnt;
-    });
-    const all = [...map.values()].sort((a, b) => b.cnt - a.cnt);
-    let filtered = allowed.length > 0 ? all.filter(item => allowed.includes(item.label)) : all;
-    if (filtered.length < 6) {
-      const existing = new Set(filtered.map(x => x.label));
-      allowed.forEach(label => { if (!existing.has(label)) filtered.push({ label, category: normalizedCategory, cnt: 0 }); });
-    }
-    let suggested = filtered.slice(0, 6);
-    let full = filtered.slice(6, 18);
-    let cross = [];
-    const sub = (subcategory || "").toString().trim();
-    if (sub) {
-      const [crossRows] = await geoDB.query(
-        `SELECT business_trade_name, category, COUNT(*) AS cnt
-         FROM businesses WHERE LOWER(business_trade_name) LIKE ? AND category <> ? AND business_trade_name IS NOT NULL AND business_trade_name <> ''
-         GROUP BY business_trade_name, category`,
-        [`%${sub.toLowerCase()}%`, normalizedCategory]
-      );
-      const crossMap = new Map();
-      crossRows.forEach((r) => {
-        const generic = toGenericType(r.business_trade_name);
-        if (!crossMap.has(generic)) crossMap.set(generic, { label: generic, category: r.category || "", cnt: 0 });
-        crossMap.get(generic).cnt += r.cnt;
-      });
-      cross = [...crossMap.values()].sort((a, b) => b.cnt - a.cnt).slice(0, 10);
-      if (allowed.length > 0) cross = cross.filter(item => allowed.includes(item.label));
-    }
-    function enforce(list) { if (allowed.length === 0) return list; return list.filter(item => allowed.includes(item.label)); }
-    suggested = enforce(suggested); full = enforce(full); cross = enforce(cross);
-    return res.json({ success: true, data: { suggested, full, cross } });
-  } catch (err) {
-    console.error("[smart-chips error]", err);
-    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -951,124 +922,44 @@ app.post("/api/user-profile", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/admin/profile", requireAdminPage, (req, res) => {
-  res.sendFile(path.join(adminDashboardPath, "admindb.html"));
-});
-
-app.get("/api/check-auth", (req, res) => {
-  if (!req.session.user) return res.json({ authenticated: false });
-  res.json({
-    authenticated: true, isAdmin: req.session.user.role === "admin",
-    user: { id: req.session.user.id, fullname: req.session.user.fullname, username: req.session.user.username, role: req.session.user.role }
-  });
-});
-
-app.get("/api/nearest-barangay", requireAuth, async (req, res) => {
+// ---------------
+// ADMIN ROUTES
+// ---------------
+app.get("/api/admin/test-report-tables", requireAdmin, async (req, res) => {
   try {
-    const { lat, lon } = req.query;
-    if (!lat || !lon) return res.status(400).json({ success: false, message: "lat/lon required" });
-    const clickLat = Number(lat), clickLon = Number(lon);
-    const [barangays] = await geoDB.query(
-      `SELECT barangay_name, center_lat, center_lon FROM demographic_pasig WHERE center_lat IS NOT NULL AND center_lon IS NOT NULL`
-    );
-    if (barangays.length === 0) return res.json({ success: false, message: "No barangay centers found." });
-    let nearestBarangay = null, minDist = Infinity;
-    barangays.forEach(row => {
-      const dist = haversineMeters(clickLat, clickLon, Number(row.center_lat), Number(row.center_lon));
-      if (dist < minDist) { minDist = dist; nearestBarangay = row.barangay_name; }
+    const [tables] = await legendDB.query(`
+      SELECT TABLE_NAME 
+      FROM information_schema.TABLES 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME IN ('search_pin_history', 'recommendation_history', 'saved_history')
+    `);
+    const [searchCount] = await legendDB.query(`SELECT COUNT(*) as cnt FROM search_pin_history`);
+    const [recCount] = await legendDB.query(`SELECT COUNT(*) as cnt FROM recommendation_history`);
+    const [savedCount] = await legendDB.query(`SELECT COUNT(*) as cnt FROM saved_history`);
+    res.json({
+      tablesFound: tables.map(t => t.TABLE_NAME),
+      counts: {
+        search_pin_history: searchCount[0].cnt,
+        recommendation_history: recCount[0].cnt,
+        saved_history: savedCount[0].cnt
+      }
     });
-    res.json({ success: true, barangay: nearestBarangay, distanceMeters: Math.round(minDist) });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-app.get("/api/area-demographics", requireAuth, async (req, res) => {
+app.get("/api/admin/users", requireAdmin, async (req, res) => {
   try {
-    const { barangay, line_of_business } = req.query;
-    if (!barangay) return res.status(400).json({ success: false, message: "barangay required" });
-    const [demoRows] = await geoDB.query(
-      `SELECT barangay_name, population, population_density, highest_age_group, avg_income_min, avg_income_max, gender_distribution
-       FROM demographic_pasig WHERE LOWER(TRIM(barangay_name)) LIKE LOWER(TRIM(?))`,
-      [`${normalizeBarangay(barangay)}%`]
-    );
-    const demo = demoRows.length > 0 ? demoRows[0] : null;
-    const [bizCountRows] = await geoDB.query(
-      `SELECT COUNT(*) AS total FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?))`,
-      [`${normalizeBarangay(barangay)}%`]
-    );
-    const totalBusinesses = bizCountRows[0]?.total || 0;
-    let sameLineCount = 0;
-    if (line_of_business) {
-      const [sameLineRows] = await geoDB.query(
-        `SELECT COUNT(*) AS cnt FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) AND line_of_business = ?`,
-        [`${normalizeBarangay(barangay)}%`, line_of_business]
-      );
-      sameLineCount = sameLineRows[0]?.cnt || 0;
-    }
-    res.json({ success: true, data: { demographic: demo, totalBusinesses, sameLineCount, lineOfBusiness: line_of_business || null } });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ─── SAVED RECOMMENDATIONS ────────────────────────────────────────────────────
-app.get("/api/saved-recommendations", requireAuth, async (req, res) => {
-  try {
-    const userId = req.session.user.id;
     const [rows] = await legendDB.query(
-      `SELECT id, business_type, barangay, suitability_score, lat, lon, saved_at FROM saved_recommendations WHERE user_id = ? ORDER BY saved_at DESC`,
-      [userId]
+      "SELECT id, fullname, username, email, affiliation FROM users WHERE role != 'admin' ORDER BY fullname"
     );
-    res.json({ success: true, data: rows });
+    res.json({ success: true, users: rows });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-app.post("/api/saved-recommendations", requireAuth, async (req, res) => {
-  try {
-    const userId = req.session.user.id;
-    const { business_type, barangay, suitability_score, lat, lon } = req.body;
-    if (!business_type) return res.status(400).json({ success: false, message: "business_type is required" });
-    const latVal = safeParseCoord(lat);
-    const lonVal = safeParseCoord(lon);
-    const barangayVal = (barangay && barangay.trim()) ? barangay.trim() : null;
-    let existing;
-    if (barangayVal === null) {
-      [existing] = await legendDB.query(
-        `SELECT id FROM saved_recommendations WHERE user_id = ? AND business_type = ? AND barangay IS NULL`,
-        [userId, business_type]
-      );
-    } else {
-      [existing] = await legendDB.query(
-        `SELECT id FROM saved_recommendations WHERE user_id = ? AND business_type = ? AND LOWER(TRIM(barangay)) = LOWER(TRIM(?))`,
-        [userId, business_type, barangayVal]
-      );
-    }
-    if (existing.length > 0) return res.json({ success: false, message: "Already saved" });
-    const [result] = await legendDB.query(
-      `INSERT INTO saved_recommendations (user_id, business_type, barangay, suitability_score, lat, lon) VALUES (?, ?, ?, ?, ?, ?)`,
-      [userId, business_type, barangayVal, suitability_score || null, latVal, lonVal]
-    );
-    res.json({ success: true, id: result.insertId, message: "Saved successfully" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-app.delete("/api/saved-recommendations/:id", requireAuth, async (req, res) => {
-  try {
-    const userId = req.session.user.id;
-    const [result] = await legendDB.query("DELETE FROM saved_recommendations WHERE id = ? AND user_id = ?", [req.params.id, userId]);
-    if (result.affectedRows === 0) return res.status(404).json({ success: false, message: "Saved recommendation not found" });
-    res.json({ success: true, message: "Removed successfully" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ─── ADMIN STATS ──────────────────────────────────────────────────────────────
 app.get("/api/admin/stats", requireAdmin, async (req, res) => {
   try {
     const [userCount] = await legendDB.query("SELECT COUNT(*) as total FROM users WHERE role != 'admin'");
@@ -1099,7 +990,6 @@ app.get("/api/admin/saved-stats", requireAdmin, async (req, res) => {
   }
 });
 
-// ─── ADMIN ROUTES ─────────────────────────────────────────────────────────────
 app.get("/api/admin/barangays", requireAdmin, async (req, res) => {
   try {
     const [barangays] = await geoDB.query("SELECT barangay_name FROM demographic_pasig ORDER BY barangay_name");
@@ -1264,6 +1154,226 @@ app.delete("/api/admin/demographics/:id", requireAdmin, async (req, res) => {
   }
 });
 
+// ---------------
+// SMART CHIPS
+// ---------------
+app.get("/api/smart-chips", requireAuth, async (req, res) => {
+  try {
+    const { category = "", subcategory = "" } = req.query;
+    const normalizedCategory = normalizeCategoryInput(category);
+    if (!normalizedCategory) {
+      return res.json({ success: true, data: { suggested: [], full: [], cross: [] } });
+    }
+    const CATEGORY_MAP = {
+      "Food and Beverages": ["Restaurant", "Coffee Shop", "Milk Tea Shop", "Pizza Shop", "Burger Restaurant", "Fried Chicken Restaurant", "Bakery", "Fast Food Restaurant", "Cafe"],
+      "Retail": ["Convenience Store", "Sari-Sari Store", "Grocery / Supermarket", "General Business"],
+      "Personal Care and Services": ["Salon / Barbershop", "Spa & Massage", "Laundry Shop", "Repair Shop"],
+      "Technology": ["Internet Cafe", "Computer Shop", "IT Services"],
+      "Digital Service": ["Printing Shop", "Online Services", "Digital Marketing"],
+      "Wholesale & Import": ["Wholesale Store", "Importer", "Trading Business"],
+      "Manufacturing": ["Factory", "Production", "Industrial Business"],
+      "IT & Software": ["Software Company", "IT Services", "System Developer"],
+      "BPO & Call Center": ["Call Center", "BPO Services"],
+      "Construction": ["Construction Company", "Contractor"],
+      "Finance & Banking": ["Bank", "Lending Company", "Financial Services"],
+      "Education": ["School", "Training Center", "Tutorial Center"],
+      "Healthcare": ["Clinic", "Hospital", "Pharmacy"],
+      "Energy and Fuel": ["Gas Station", "Fuel Supplier"],
+      "Logistics & Transport": ["Delivery Service", "Transport Service", "Logistics Company"],
+      "Hospitality": ["Hotel", "Resort", "Lodging"],
+      "Security Services": ["Security Agency"],
+      "Legal & Consulting": ["Law Firm", "Consulting Firm"],
+      "Marketing & Advertising": ["Marketing Agency", "Advertising Agency"],
+      "Admin & Management": ["Office Services", "Admin Services"],
+      "General Services": ["General Business"]
+    };
+    const allowed = CATEGORY_MAP[normalizedCategory] || [];
+    const [rows] = await geoDB.query(
+      `SELECT business_trade_name, category, COUNT(*) AS cnt
+       FROM businesses WHERE category = ? AND business_trade_name IS NOT NULL AND business_trade_name <> ''
+       GROUP BY business_trade_name, category`,
+      [normalizedCategory]
+    );
+    function toGenericType(name) {
+      const str = (name || "").toLowerCase();
+      if (/coffee|cafe|brew|starbucks/.test(str)) return "Coffee Shop";
+      if (/milk.?tea|boba|gong cha|chatime/.test(str)) return "Milk Tea Shop";
+      if (/pizza|pizzeria/.test(str)) return "Pizza Shop";
+      if (/burger|jollibee|mcdo|mcdonald/.test(str)) return "Burger Restaurant";
+      if (/chicken|fried chicken|bonchon/.test(str)) return "Fried Chicken Restaurant";
+      if (/bakery|bakeshop|tinapay/.test(str)) return "Bakery";
+      if (/fast.?food/.test(str)) return "Fast Food Restaurant";
+      if (/restaurant|eatery|diner/.test(str)) return "Restaurant";
+      if (/cafe/.test(str)) return "Cafe";
+      if (/grocery|supermarket|palengke/.test(str)) return "Grocery / Supermarket";
+      if (/sari.?sari/.test(str)) return "Sari-Sari Store";
+      if (/convenience|7.?eleven|minimart/.test(str)) return "Convenience Store";
+      if (/laundry|washing/.test(str)) return "Laundry Shop";
+      if (/salon|barber/.test(str)) return "Salon / Barbershop";
+      if (/spa|massage/.test(str)) return "Spa & Massage";
+      if (/repair|vulcanizing/.test(str)) return "Repair Shop";
+      if (/internet|computer/.test(str)) return "Internet Cafe";
+      if (/printing|photocopy/.test(str)) return "Printing Shop";
+      if (/clinic/.test(str)) return "Clinic";
+      if (/hospital/.test(str)) return "Hospital";
+      if (/pharmacy|drugstore/.test(str)) return "Pharmacy";
+      if (/bank/.test(str)) return "Bank";
+      return "General Business";
+    }
+    const map = new Map();
+    rows.forEach((r) => {
+      const generic = toGenericType(r.business_trade_name);
+      if (!map.has(generic)) map.set(generic, { label: generic, category: r.category || normalizedCategory, cnt: 0 });
+      map.get(generic).cnt += r.cnt;
+    });
+    const all = [...map.values()].sort((a, b) => b.cnt - a.cnt);
+    let filtered = allowed.length > 0 ? all.filter(item => allowed.includes(item.label)) : all;
+    if (filtered.length < 6) {
+      const existing = new Set(filtered.map(x => x.label));
+      allowed.forEach(label => { if (!existing.has(label)) filtered.push({ label, category: normalizedCategory, cnt: 0 }); });
+    }
+    let suggested = filtered.slice(0, 6);
+    let full = filtered.slice(6, 18);
+    let cross = [];
+    const sub = (subcategory || "").toString().trim();
+    if (sub) {
+      const [crossRows] = await geoDB.query(
+        `SELECT business_trade_name, category, COUNT(*) AS cnt
+         FROM businesses WHERE LOWER(business_trade_name) LIKE ? AND category <> ? AND business_trade_name IS NOT NULL AND business_trade_name <> ''
+         GROUP BY business_trade_name, category`,
+        [`%${sub.toLowerCase()}%`, normalizedCategory]
+      );
+      const crossMap = new Map();
+      crossRows.forEach((r) => {
+        const generic = toGenericType(r.business_trade_name);
+        if (!crossMap.has(generic)) crossMap.set(generic, { label: generic, category: r.category || "", cnt: 0 });
+        crossMap.get(generic).cnt += r.cnt;
+      });
+      cross = [...crossMap.values()].sort((a, b) => b.cnt - a.cnt).slice(0, 10);
+      if (allowed.length > 0) cross = cross.filter(item => allowed.includes(item.label));
+    }
+    function enforce(list) { if (allowed.length === 0) return list; return list.filter(item => allowed.includes(item.label)); }
+    suggested = enforce(suggested); full = enforce(full); cross = enforce(cross);
+    return res.json({ success: true, data: { suggested, full, cross } });
+  } catch (err) {
+    console.error("[smart-chips error]", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ---------------
+// GEO / BARANGAY
+// ---------------
+app.get("/api/nearest-barangay", requireAuth, async (req, res) => {
+  try {
+    const { lat, lon } = req.query;
+    if (!lat || !lon) return res.status(400).json({ success: false, message: "lat/lon required" });
+    const clickLat = Number(lat), clickLon = Number(lon);
+    const [barangays] = await geoDB.query(
+      `SELECT barangay_name, center_lat, center_lon FROM demographic_pasig WHERE center_lat IS NOT NULL AND center_lon IS NOT NULL`
+    );
+    if (barangays.length === 0) return res.json({ success: false, message: "No barangay centers found." });
+    let nearestBarangay = null, minDist = Infinity;
+    barangays.forEach(row => {
+      const dist = haversineMeters(clickLat, clickLon, Number(row.center_lat), Number(row.center_lon));
+      if (dist < minDist) { minDist = dist; nearestBarangay = row.barangay_name; }
+    });
+    res.json({ success: true, barangay: nearestBarangay, distanceMeters: Math.round(minDist) });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get("/api/area-demographics", requireAuth, async (req, res) => {
+  try {
+    const { barangay, line_of_business } = req.query;
+    if (!barangay) return res.status(400).json({ success: false, message: "barangay required" });
+    const [demoRows] = await geoDB.query(
+      `SELECT barangay_name, population, population_density, highest_age_group, avg_income_min, avg_income_max, gender_distribution
+       FROM demographic_pasig WHERE LOWER(TRIM(barangay_name)) LIKE LOWER(TRIM(?))`,
+      [`${normalizeBarangay(barangay)}%`]
+    );
+    const demo = demoRows.length > 0 ? demoRows[0] : null;
+    const [bizCountRows] = await geoDB.query(
+      `SELECT COUNT(*) AS total FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?))`,
+      [`${normalizeBarangay(barangay)}%`]
+    );
+    const totalBusinesses = bizCountRows[0]?.total || 0;
+    let sameLineCount = 0;
+    if (line_of_business) {
+      const [sameLineRows] = await geoDB.query(
+        `SELECT COUNT(*) AS cnt FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) AND line_of_business = ?`,
+        [`${normalizeBarangay(barangay)}%`, line_of_business]
+      );
+      sameLineCount = sameLineRows[0]?.cnt || 0;
+    }
+    res.json({ success: true, data: { demographic: demo, totalBusinesses, sameLineCount, lineOfBusiness: line_of_business || null } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ---------------
+// SAVED RECOMMENDATIONS
+// ---------------
+app.get("/api/saved-recommendations", requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    const [rows] = await legendDB.query(
+      `SELECT id, business_type, barangay, suitability_score, lat, lon, saved_at FROM saved_recommendations WHERE user_id = ? ORDER BY saved_at DESC`,
+      [userId]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post("/api/saved-recommendations", requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    const { business_type, barangay, suitability_score, lat, lon } = req.body;
+    if (!business_type) return res.status(400).json({ success: false, message: "business_type is required" });
+    const latVal = safeParseCoord(lat);
+    const lonVal = safeParseCoord(lon);
+    const barangayVal = (barangay && barangay.trim()) ? barangay.trim() : null;
+    let existing;
+    if (barangayVal === null) {
+      [existing] = await legendDB.query(
+        `SELECT id FROM saved_recommendations WHERE user_id = ? AND business_type = ? AND barangay IS NULL`,
+        [userId, business_type]
+      );
+    } else {
+      [existing] = await legendDB.query(
+        `SELECT id FROM saved_recommendations WHERE user_id = ? AND business_type = ? AND LOWER(TRIM(barangay)) = LOWER(TRIM(?))`,
+        [userId, business_type, barangayVal]
+      );
+    }
+    if (existing.length > 0) return res.json({ success: false, message: "Already saved" });
+    const [result] = await legendDB.query(
+      `INSERT INTO saved_recommendations (user_id, business_type, barangay, suitability_score, lat, lon) VALUES (?, ?, ?, ?, ?, ?)`,
+      [userId, business_type, barangayVal, suitability_score || null, latVal, lonVal]
+    );
+    res.json({ success: true, id: result.insertId, message: "Saved successfully" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.delete("/api/saved-recommendations/:id", requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    const [result] = await legendDB.query("DELETE FROM saved_recommendations WHERE id = ? AND user_id = ?", [req.params.id, userId]);
+    if (result.affectedRows === 0) return res.status(404).json({ success: false, message: "Saved recommendation not found" });
+    res.json({ success: true, message: "Removed successfully" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ---------------
+// IDEAS
+// ---------------
 app.get("/api/ideas", requireAuth, async (req, res) => {
   try {
     const { category, barangay, top = 3, prefs = "" } = req.query;
@@ -1280,9 +1390,7 @@ app.get("/api/ideas", requireAuth, async (req, res) => {
       const p = [];
 
       if (opts.category && categoryKeywords.length > 0) {
-        const keywordConditions = categoryKeywords.map(() =>
-          `LOWER(line_of_business) LIKE ?`
-        ).join(' OR ');
+        const keywordConditions = categoryKeywords.map(() => `LOWER(line_of_business) LIKE ?`).join(' OR ');
         sql += ` AND (${keywordConditions})`;
         categoryKeywords.forEach(kw => p.push(`%${kw.toLowerCase()}%`));
       }
@@ -1326,14 +1434,10 @@ app.get("/api/ideas", requireAuth, async (req, res) => {
     ideaRows.forEach(row => {
       const readableName = dbCodeToReadableName(row.name);
       if (GENERIC_NAMES.includes(readableName)) return;
-
       if (categoryKeywords.length > 0) {
-        const matchesCategory = categoryKeywords.some(kw =>
-          readableName.toLowerCase().includes(kw.toLowerCase())
-        );
+        const matchesCategory = categoryKeywords.some(kw => readableName.toLowerCase().includes(kw.toLowerCase()));
         if (!matchesCategory) return;
       }
-
       if (readableNameMap.has(readableName)) {
         readableNameMap.set(readableName, readableNameMap.get(readableName) + row.cnt);
       } else {
@@ -1493,9 +1597,7 @@ app.get("/api/ideas-by-point", requireAuth, async (req, res) => {
       });
       const demo = demoMap[nearestBarangay] || {};
       const totalBiz = totalBizMap[nearestBarangay] || 0;
-      const bizDensity = demo.population
-        ? totalBiz / (Number(demo.population) / 1000)
-        : 0;
+      const bizDensity = demo.population ? totalBiz / (Number(demo.population) / 1000) : 0;
       ideaScores.push({
         name,
         totalpop: Number(demo.population) || 0,
@@ -1534,10 +1636,7 @@ app.get("/api/ideas-by-point", requireAuth, async (req, res) => {
 app.get("/api/barangay-business-types", requireAuth, async (req, res) => {
   try {
     const { barangay, type } = req.query;
-
-    if (!barangay) {
-      return res.json({ success: true, data: [] });
-    }
+    if (!barangay) return res.json({ success: true, data: [] });
 
     let sql = `
       SELECT line_of_business, COUNT(*) as cnt
@@ -1545,7 +1644,6 @@ app.get("/api/barangay-business-types", requireAuth, async (req, res) => {
       WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?))
         AND line_of_business IS NOT NULL
         AND line_of_business <> ''`;
-
     const params = [`${normalizeBarangay(barangay)}%`];
 
     if (type) {
@@ -1555,13 +1653,11 @@ app.get("/api/barangay-business-types", requireAuth, async (req, res) => {
     }
 
     sql += ` GROUP BY line_of_business ORDER BY cnt DESC LIMIT 3`;
-
     const [rows] = await geoDB.query(sql, params);
 
     const businessTypes = rows.map(row => {
       const rawType = row.line_of_business || '';
       let readable = rawType;
-
       if (/RESTAURANT/i.test(rawType)) readable = 'Restaurant';
       else if (/SARI-SARI/i.test(rawType)) readable = 'Sari-Sari Store';
       else if (/BAKERY/i.test(rawType)) readable = 'Bakery';
@@ -1591,60 +1687,13 @@ app.get("/api/barangay-business-types", requireAuth, async (req, res) => {
       else if (/LESSOR|APARTMENT|RENTAL/i.test(rawType)) readable = 'Real Estate';
       else if (/TRADING/i.test(rawType)) readable = 'Trading';
       else if (/FOOD/i.test(rawType)) readable = 'Food Business';
-
       return readable;
     });
 
-    const uniqueTypes = [...new Set(businessTypes)];
-
-    res.json({ success: true, data: uniqueTypes.slice(0, 3) });
-
+    res.json({ success: true, data: [...new Set(businessTypes)].slice(0, 3) });
   } catch (err) {
     console.error("barangay-business-types error:", err);
     res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-app.get("/api/verify-barangay-names", requireAuth, async (req, res) => {
-  try {
-    const [sample] = await geoDB.query(
-      `SELECT id, barangay as db_barangay, business_trade_name, lat, lon
-       FROM businesses
-       WHERE barangay = 'Santa Lucia'
-       LIMIT 30`
-    );
-
-    const results = await Promise.all(sample.map(async (biz) => {
-      try {
-        const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${biz.lat}&lon=${biz.lon}&format=json`);
-        const data = await resp.json();
-        const nominatimBarangay = data.address?.suburb || data.address?.neighbourhood || data.address?.city_district || 'Unknown';
-        return {
-          id: biz.id,
-          db_barangay: biz.db_barangay,
-          nominatim_barangay: nominatimBarangay,
-          lat: biz.lat,
-          lon: biz.lon
-        };
-      } catch {
-        return { id: biz.id, db_barangay: biz.db_barangay, nominatim_barangay: 'Error', lat: biz.lat, lon: biz.lon };
-      }
-    }));
-
-    const mismatches = results.filter(r =>
-      r.nominatim_barangay.toLowerCase() !== 'santa lucia' &&
-      r.nominatim_barangay !== 'Unknown' &&
-      r.nominatim_barangay !== 'Error'
-    );
-
-    res.json({
-      total_sample: sample.length,
-      mismatch_count: mismatches.length,
-      mismatches: mismatches.slice(0, 10),
-      unique_nominatim_barangays: [...new Set(mismatches.map(m => m.nominatim_barangay))].sort()
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1704,222 +1753,31 @@ app.get("/api/idea-locations", requireAuth, async (req, res) => {
       is_predicted: false
     })).filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lon));
 
-    return res.json({
-      success: true,
-      data: result.slice(0, topN),
-      total_found: rows.length
-    });
+    return res.json({ success: true, data: result.slice(0, topN), total_found: rows.length });
   } catch (err) {
     console.error("idea-locations error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-app.get("/api/test-idea-mapping", (req, res) => {
-  const testIdea = req.query.idea || 'Pizza';
-  const result = ideaToDbSearchTerms(testIdea);
-  res.json({
-    input: testIdea,
-    result: result,
-    functionExists: typeof ideaToDbSearchTerms === 'function'
-  });
-});
-
-app.get("/api/check-santa-lucia-centroids", requireAuth, async (req, res) => {
-  try {
-    const [demoCentroids] = await geoDB.query(
-      `SELECT barangay_name, center_lat, center_lon 
-       FROM demographic_pasig 
-       WHERE LOWER(TRIM(barangay_name)) LIKE '%santa lucia%'`
-    );
-
-    const [bizCoords] = await geoDB.query(
-      `SELECT barangay, 
-              MIN(CAST(lat AS DECIMAL(10,7))) as minLat, 
-              MAX(CAST(lat AS DECIMAL(10,7))) as maxLat,
-              MIN(CAST(lon AS DECIMAL(10,7))) as minLon, 
-              MAX(CAST(lon AS DECIMAL(10,7))) as maxLon,
-              AVG(CAST(lat AS DECIMAL(10,7))) as avgLat,
-              AVG(CAST(lon AS DECIMAL(10,7))) as avgLon,
-              COUNT(*) as cnt
-       FROM businesses 
-       WHERE LOWER(TRIM(barangay)) LIKE '%santa lucia%'
-         AND lat IS NOT NULL AND lon IS NOT NULL
-         AND lat <> 'null' AND lon <> 'null'`
-    );
-
-    res.json({
-      demoCentroids,
-      businessCoordinates: bizCoords,
-      currentBounds: BARANGAY_BOUNDS['santa lucia'],
-      currentCentroid: CENTROID_FALLBACK['santa lucia']
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/fix-barangay-names", requireAdmin, async (req, res) => {
-  try {
-    const results = [];
-
-    for (const [barangayName, bounds] of Object.entries(BARANGAY_BOUNDS)) {
-      const properName = barangayName.replace(/\b\w/g, c => c.toUpperCase());
-
-      const [updateResult] = await geoDB.query(
-        `UPDATE businesses 
-         SET barangay = ?
-         WHERE CAST(lat AS DECIMAL(10,7)) >= ? 
-           AND CAST(lat AS DECIMAL(10,7)) <= ?
-           AND CAST(lon AS DECIMAL(10,7)) >= ?
-           AND CAST(lon AS DECIMAL(10,7)) <= ?
-           AND lat IS NOT NULL AND lon IS NOT NULL
-           AND lat <> 'null' AND lon <> 'null'`,
-        [properName, bounds.minLat, bounds.maxLat, bounds.minLon, bounds.maxLon]
-      );
-
-      results.push({
-        barangay: properName,
-        bounds: bounds,
-        businessesUpdated: updateResult.affectedRows
-      });
-    }
-
-    const [unmatched] = await geoDB.query(
-      `SELECT COUNT(*) as cnt FROM businesses 
-       WHERE lat IS NOT NULL AND lon IS NOT NULL 
-       AND lat <> 'null' AND lon <> 'null'
-       AND barangay NOT IN (?)`,
-      [Object.keys(BARANGAY_BOUNDS).map(b => b.replace(/\b\w/g, c => c.toUpperCase()))]
-    );
-
-    res.json({
-      success: true,
-      message: 'Barangay names reassigned based on GPS coordinates',
-      results: results,
-      unmatchedBusinesses: unmatched[0].cnt
-    });
-
-  } catch (err) {
-    console.error("fix-barangay-names error:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-app.get("/api/fix-outside-pasig", requireAdmin, async (req, res) => {
-  try {
-    const [result] = await geoDB.query(
-      `UPDATE businesses 
-       SET barangay = 'Outside Pasig'
-       WHERE (CAST(lat AS DECIMAL(10,7)) < ? 
-              OR CAST(lat AS DECIMAL(10,7)) > ?
-              OR CAST(lon AS DECIMAL(10,7)) < ?
-              OR CAST(lon AS DECIMAL(10,7)) > ?)
-         AND lat IS NOT NULL AND lon IS NOT NULL
-         AND lat <> 'null' AND lon <> 'null'`,
-      [PASIG_BOUNDS.minLat, PASIG_BOUNDS.maxLat, PASIG_BOUNDS.minLon, PASIG_BOUNDS.maxLon]
-    );
-
-    res.json({
-      success: true,
-      businessesMarkedOutside: result.affectedRows
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-app.get("/api/debug-manggahan", requireAuth, debugRouteRateLimit, async (req, res) => {
-  const rawIdea = (req.query.idea || "Restaurant").toString().trim();
-  const idea = rawIdea.slice(0, 80).replace(/[^a-zA-Z0-9\s&'().,-]/g, "");
-  const barangay = req.query.barangay || "Manggahan";
-  try {
-    const [barangayNames] = await geoDB.query(`SELECT DISTINCT barangay FROM businesses WHERE barangay LIKE ? LIMIT 10`, [`%${barangay}%`]);
-    const [centroid] = await geoDB.query(`SELECT barangay_name, center_lat, center_lon FROM demographic_pasig WHERE barangay_name LIKE ? LIMIT 5`, [`%${barangay}%`]);
-    const [bizCount] = await geoDB.query(`SELECT COUNT(*) as cnt FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?))`, [`${normalizeBarangay(barangay)}%`]);
-    const [ideaMatch] = await geoDB.query(`SELECT barangay, line_of_business, lat, lon FROM businesses WHERE (line_of_business LIKE ? OR business_trade_name LIKE ?) AND lat IS NOT NULL AND lon IS NOT NULL LIMIT 10`, [`%${idea}%`, `%${idea}%`]);
-    const [manggahanBiz] = await geoDB.query(`SELECT DISTINCT line_of_business FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) LIMIT 20`, [`${normalizeBarangay(barangay)}%`]);
-    res.json({ barangayNamesInDB: barangayNames, centroidData: centroid, bizCountInBarangay: bizCount[0].cnt, ideaMatchesAnyBiz: ideaMatch, barangayLineOfBusiness: manggahanBiz });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get("/api/debug-barangay-check", requireAuth, async (req, res) => {
-  try {
-    const barangay = req.query.barangay || 'Santa Lucia';
-    const [allBarangays] = await geoDB.query(`SELECT DISTINCT barangay, COUNT(*) as cnt FROM businesses WHERE barangay IS NOT NULL AND barangay <> '' GROUP BY barangay ORDER BY barangay`);
-    const [matchingBiz] = await geoDB.query(`SELECT barangay, business_trade_name, line_of_business, lat, lon FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) LIMIT 20`, [`%${barangay.toLowerCase()}%`]);
-    const [demo] = await geoDB.query(`SELECT barangay_name, center_lat, center_lon FROM demographic_pasig WHERE LOWER(TRIM(barangay_name)) LIKE LOWER(TRIM(?))`, [`%${barangay.toLowerCase()}%`]);
-    const santaLuciaBounds = BARANGAY_BOUNDS['santa lucia'];
-    let bizInBounds = [];
-    if (santaLuciaBounds) {
-      [bizInBounds] = await geoDB.query(`SELECT barangay, business_trade_name, line_of_business, lat, lon FROM businesses WHERE CAST(lat AS DECIMAL(10,7)) BETWEEN ? AND ? AND CAST(lon AS DECIMAL(10,7)) BETWEEN ? AND ? LIMIT 20`, [santaLuciaBounds.minLat, santaLuciaBounds.maxLat, santaLuciaBounds.minLon, santaLuciaBounds.maxLon]);
-    }
-    res.json({ success: true, searchedBarangay: barangay, allBarangaysInDB: allBarangays, matchingBusinesses: matchingBiz, demographicData: demo, santaLuciaBounds: santaLuciaBounds || 'not found', businessesInSantaLuciaBounds: bizInBounds.map(b => ({ barangay: b.barangay, name: b.business_trade_name, line: b.line_of_business, lat: b.lat, lon: b.lon })) });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-});
-
-app.get("/api/debug-idea-search", requireAuth, async (req, res) => {
-  try {
-    const { idea, barangay } = req.query;
-    const searchTerms = ideaToDbSearchTerms(idea);
-    let query, params;
-    if (searchTerms && searchTerms.length > 0) {
-      const likeConditions = searchTerms.map(() => `line_of_business LIKE ?`);
-      query = `SELECT barangay, business_trade_name, line_of_business, lat, lon FROM businesses WHERE (${likeConditions.join(' OR ')} OR business_trade_name LIKE ?) AND LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) AND lat IS NOT NULL AND lon IS NOT NULL LIMIT 20`;
-      params = []; searchTerms.forEach(term => params.push(`%${term}%`)); params.push(`%${idea}%`, `%${(barangay || '').toLowerCase()}%`);
-    } else {
-      query = `SELECT barangay, business_trade_name, line_of_business, lat, lon FROM businesses WHERE (line_of_business LIKE ? OR business_trade_name LIKE ?) AND LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) AND lat IS NOT NULL AND lon IS NOT NULL LIMIT 20`;
-      params = [`%${idea}%`, `%${idea}%`, `%${(barangay || '').toLowerCase()}%`];
-    }
-    const [exactMatch] = await geoDB.query(query, params);
-    const [broadMatch] = await geoDB.query(`SELECT line_of_business, COUNT(*) as cnt FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) AND line_of_business IS NOT NULL GROUP BY line_of_business ORDER BY cnt DESC LIMIT 30`, [`%${(barangay || '').toLowerCase()}%`]);
-    const [categories] = await geoDB.query(`SELECT category, COUNT(*) as cnt FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) AND category IS NOT NULL GROUP BY category ORDER BY cnt DESC`, [`%${(barangay || '').toLowerCase()}%`]);
-    res.json({ idea, barangay, searchTerms, exactMatches: exactMatch, broadMatches: broadMatch, categories: categories });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-});
-
-app.get("/geo-test", async (req, res) => {
-  try { const [rows] = await geoDB.query("SELECT 1 AS test"); res.json(rows); }
-  catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get("/api/debug-session", (req, res) => {
-  res.json({ authenticated: !!req.session.user, user: req.session.user || null, isAdmin: req.session.user?.role === "admin", adminDashboardPath });
-});
-
-// ─── REPORT ROUTES ────────────────────────────────────────────────────────────
-
-// =============================================
-// REPORT ROUTES - FIXED (using legendDB instead of pool)
-// =============================================
-
+// ---------------
+// REPORT ROUTES
+// ---------------
 app.get("/api/report/history", reportRouteRateLimit, requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
 
     const [searchRows, recommendationRows, savedRows] = await Promise.all([
       legendDB.query(
-        `SELECT query, source, lat, lon, created_at
-         FROM search_pin_history
-         WHERE user_id = ?
-         ORDER BY created_at DESC
-         LIMIT 200`,
+        `SELECT query, source, lat, lon, created_at FROM search_pin_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 200`,
         [userId]
       ),
       legendDB.query(
-        `SELECT recommended_item_id, source, lat, lon, created_at
-         FROM recommendation_history
-         WHERE user_id = ?
-         ORDER BY created_at DESC
-         LIMIT 200`,
+        `SELECT recommended_item_id, source, lat, lon, created_at FROM recommendation_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 200`,
         [userId]
       ),
       legendDB.query(
-        `SELECT business_type, barangay, lat, lon, saved_at, was_removed
-         FROM saved_history
-         WHERE user_id = ?
-         ORDER BY saved_at DESC
-         LIMIT 200`,
+        `SELECT business_type, barangay, lat, lon, saved_at, was_removed FROM saved_history WHERE user_id = ? ORDER BY saved_at DESC LIMIT 200`,
         [userId]
       )
     ]);
@@ -1977,20 +1835,14 @@ app.post("/api/report/search-pin", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
     const { query, source, lat, lon } = req.body;
-    
     console.log("Search-pin report:", { userId, query, source, lat, lon });
-    
     const latValue = (lat && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
     const lonValue = (lon && !isNaN(parseFloat(lon))) ? parseFloat(lon) : null;
     const isPinned = (source === 'map_click' || source === 'drag') ? 1 : 0;
-    
     const [result] = await legendDB.query(
-      `INSERT INTO search_pin_history 
-       (user_id, query, pinned_item_id, pinned_item_type, is_pinned, source, lat, lon, created_at) 
-       VALUES (?, ?, NULL, 'location', ?, ?, ?, ?, NOW())`,
+      `INSERT INTO search_pin_history (user_id, query, pinned_item_id, pinned_item_type, is_pinned, source, lat, lon, created_at) VALUES (?, ?, NULL, 'location', ?, ?, ?, ?, NOW())`,
       [userId, query || null, isPinned, source || null, latValue, lonValue]
     );
-    
     console.log("Search-pin inserted, ID:", result.insertId);
     res.json({ success: true });
   } catch (err) {
@@ -2003,20 +1855,14 @@ app.post("/api/report/recommendation", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
     const { idea, area, lat, lon } = req.body;
-    
     console.log("Recommendation report:", { userId, idea, area, lat, lon });
-    
     const latValue = (lat && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
     const lonValue = (lon && !isNaN(parseFloat(lon))) ? parseFloat(lon) : null;
     const ideaValue = idea ? idea.toString() : null;
-    
     const [result] = await legendDB.query(
-      `INSERT INTO recommendation_history 
-       (user_id, recommended_item_id, recommended_item_type, source, was_clicked, lat, lon, created_at) 
-       VALUES (?, ?, 'business_idea', ?, 1, ?, ?, NOW())`,
+      `INSERT INTO recommendation_history (user_id, recommended_item_id, recommended_item_type, source, was_clicked, lat, lon, created_at) VALUES (?, ?, 'business_idea', ?, 1, ?, ?, NOW())`,
       [userId, ideaValue, area || null, latValue, lonValue]
     );
-    
     console.log("Recommendation inserted, ID:", result.insertId);
     res.json({ success: true });
   } catch (err) {
@@ -2029,20 +1875,14 @@ app.post("/api/report/saved", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
     const { action, business_type, barangay, lat, lon } = req.body;
-    
     console.log("Saved report received:", { userId, action, business_type, barangay, lat, lon });
-    
     const wasRemoved = action === 'removed' ? 1 : 0;
     const latValue = (lat && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
     const lonValue = (lon && !isNaN(parseFloat(lon))) ? parseFloat(lon) : null;
-    
     const [result] = await legendDB.query(
-      `INSERT INTO saved_history
-       (user_id, business_type, barangay, suitability_score, lat, lon, saved_at, was_removed, removed_at)
-       VALUES (?, ?, ?, NULL, ?, ?, NOW(), ?, ?)`,
+      `INSERT INTO saved_history (user_id, business_type, barangay, suitability_score, lat, lon, saved_at, was_removed, removed_at) VALUES (?, ?, ?, NULL, ?, ?, NOW(), ?, ?)`,
       [userId, business_type || null, barangay || null, latValue, lonValue, wasRemoved, wasRemoved ? new Date() : null]
     );
-    
     console.log("Saved entry inserted, ID:", result.insertId);
     res.json({ success: true });
   } catch (err) {
@@ -2051,15 +1891,15 @@ app.post("/api/report/saved", requireAuth, async (req, res) => {
   }
 });
 
-// Debug endpoint to check file paths
+// ---------------
+// DEBUG / UTILITY ROUTES (admin/dev only)
+// ---------------
 app.get("/api/debug-paths", (req, res) => {
-  const fs = require('fs');
-  
-  const paths = {
-    frontendPath: frontendPath,
-    dashboardPath: dashboardPath,
-    adminDashboardPath: adminDashboardPath,
-    __dirname: __dirname,
+  res.json({
+    frontendPath,
+    dashboardPath,
+    adminDashboardPath,
+    __dirname,
     files: {
       loginExists: fs.existsSync(path.join(frontendPath, "login.html")),
       dashboardExists: fs.existsSync(path.join(dashboardPath, "dashboard.html")),
@@ -2068,17 +1908,149 @@ app.get("/api/debug-paths", (req, res) => {
     fullLoginPath: path.join(frontendPath, "login.html"),
     fullDashboardPath: path.join(dashboardPath, "dashboard.html"),
     fullAdminPath: path.join(adminDashboardPath, "admindb.html")
-  };
-  
-  res.json(paths);
+  });
 });
-// ─── STATIC FILES ─────────────────────────────────────────────────────────────
+
+app.get("/api/debug-session", (req, res) => {
+  res.json({ authenticated: !!req.session.user, user: req.session.user || null, isAdmin: req.session.user?.role === "admin", adminDashboardPath });
+});
+
+app.get("/api/debug-manggahan", requireAuth, debugRouteRateLimit, async (req, res) => {
+  const rawIdea = (req.query.idea || "Restaurant").toString().trim();
+  const idea = rawIdea.slice(0, 80).replace(/[^a-zA-Z0-9\s&'().,-]/g, "");
+  const barangay = req.query.barangay || "Manggahan";
+  try {
+    const [barangayNames] = await geoDB.query(`SELECT DISTINCT barangay FROM businesses WHERE barangay LIKE ? LIMIT 10`, [`%${barangay}%`]);
+    const [centroid] = await geoDB.query(`SELECT barangay_name, center_lat, center_lon FROM demographic_pasig WHERE barangay_name LIKE ? LIMIT 5`, [`%${barangay}%`]);
+    const [bizCount] = await geoDB.query(`SELECT COUNT(*) as cnt FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?))`, [`${normalizeBarangay(barangay)}%`]);
+    const [ideaMatch] = await geoDB.query(`SELECT barangay, line_of_business, lat, lon FROM businesses WHERE (line_of_business LIKE ? OR business_trade_name LIKE ?) AND lat IS NOT NULL AND lon IS NOT NULL LIMIT 10`, [`%${idea}%`, `%${idea}%`]);
+    const [manggahanBiz] = await geoDB.query(`SELECT DISTINCT line_of_business FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) LIMIT 20`, [`${normalizeBarangay(barangay)}%`]);
+    res.json({ barangayNamesInDB: barangayNames, centroidData: centroid, bizCountInBarangay: bizCount[0].cnt, ideaMatchesAnyBiz: ideaMatch, barangayLineOfBusiness: manggahanBiz });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get("/api/debug-barangay-check", requireAuth, async (req, res) => {
+  try {
+    const barangay = req.query.barangay || 'Santa Lucia';
+    const [allBarangays] = await geoDB.query(`SELECT DISTINCT barangay, COUNT(*) as cnt FROM businesses WHERE barangay IS NOT NULL AND barangay <> '' GROUP BY barangay ORDER BY barangay`);
+    const [matchingBiz] = await geoDB.query(`SELECT barangay, business_trade_name, line_of_business, lat, lon FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) LIMIT 20`, [`%${barangay.toLowerCase()}%`]);
+    const [demo] = await geoDB.query(`SELECT barangay_name, center_lat, center_lon FROM demographic_pasig WHERE LOWER(TRIM(barangay_name)) LIKE LOWER(TRIM(?))`, [`%${barangay.toLowerCase()}%`]);
+    const santaLuciaBounds = BARANGAY_BOUNDS['santa lucia'];
+    let bizInBounds = [];
+    if (santaLuciaBounds) {
+      [bizInBounds] = await geoDB.query(`SELECT barangay, business_trade_name, line_of_business, lat, lon FROM businesses WHERE CAST(lat AS DECIMAL(10,7)) BETWEEN ? AND ? AND CAST(lon AS DECIMAL(10,7)) BETWEEN ? AND ? LIMIT 20`, [santaLuciaBounds.minLat, santaLuciaBounds.maxLat, santaLuciaBounds.minLon, santaLuciaBounds.maxLon]);
+    }
+    res.json({ success: true, searchedBarangay: barangay, allBarangaysInDB: allBarangays, matchingBusinesses: matchingBiz, demographicData: demo, santaLuciaBounds: santaLuciaBounds || 'not found', businessesInSantaLuciaBounds: bizInBounds.map(b => ({ barangay: b.barangay, name: b.business_trade_name, line: b.line_of_business, lat: b.lat, lon: b.lon })) });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get("/api/debug-idea-search", requireAuth, async (req, res) => {
+  try {
+    const { idea, barangay } = req.query;
+    const searchTerms = ideaToDbSearchTerms(idea);
+    let query, params;
+    if (searchTerms && searchTerms.length > 0) {
+      const likeConditions = searchTerms.map(() => `line_of_business LIKE ?`);
+      query = `SELECT barangay, business_trade_name, line_of_business, lat, lon FROM businesses WHERE (${likeConditions.join(' OR ')} OR business_trade_name LIKE ?) AND LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) AND lat IS NOT NULL AND lon IS NOT NULL LIMIT 20`;
+      params = []; searchTerms.forEach(term => params.push(`%${term}%`)); params.push(`%${idea}%`, `%${(barangay || '').toLowerCase()}%`);
+    } else {
+      query = `SELECT barangay, business_trade_name, line_of_business, lat, lon FROM businesses WHERE (line_of_business LIKE ? OR business_trade_name LIKE ?) AND LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) AND lat IS NOT NULL AND lon IS NOT NULL LIMIT 20`;
+      params = [`%${idea}%`, `%${idea}%`, `%${(barangay || '').toLowerCase()}%`];
+    }
+    const [exactMatch] = await geoDB.query(query, params);
+    const [broadMatch] = await geoDB.query(`SELECT line_of_business, COUNT(*) as cnt FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) AND line_of_business IS NOT NULL GROUP BY line_of_business ORDER BY cnt DESC LIMIT 30`, [`%${(barangay || '').toLowerCase()}%`]);
+    const [categories] = await geoDB.query(`SELECT category, COUNT(*) as cnt FROM businesses WHERE LOWER(TRIM(barangay)) LIKE LOWER(TRIM(?)) AND category IS NOT NULL GROUP BY category ORDER BY cnt DESC`, [`%${(barangay || '').toLowerCase()}%`]);
+    res.json({ idea, barangay, searchTerms, exactMatches: exactMatch, broadMatches: broadMatch, categories });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+app.get("/api/test-idea-mapping", (req, res) => {
+  const testIdea = req.query.idea || 'Pizza';
+  res.json({ input: testIdea, result: ideaToDbSearchTerms(testIdea), functionExists: typeof ideaToDbSearchTerms === 'function' });
+});
+
+app.get("/api/verify-barangay-names", requireAuth, async (req, res) => {
+  try {
+    const [sample] = await geoDB.query(
+      `SELECT id, barangay as db_barangay, business_trade_name, lat, lon FROM businesses WHERE barangay = 'Santa Lucia' LIMIT 30`
+    );
+    const results = await Promise.all(sample.map(async (biz) => {
+      try {
+        const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${biz.lat}&lon=${biz.lon}&format=json`);
+        const data = await resp.json();
+        const nominatimBarangay = data.address?.suburb || data.address?.neighbourhood || data.address?.city_district || 'Unknown';
+        return { id: biz.id, db_barangay: biz.db_barangay, nominatim_barangay: nominatimBarangay, lat: biz.lat, lon: biz.lon };
+      } catch {
+        return { id: biz.id, db_barangay: biz.db_barangay, nominatim_barangay: 'Error', lat: biz.lat, lon: biz.lon };
+      }
+    }));
+    const mismatches = results.filter(r => r.nominatim_barangay.toLowerCase() !== 'santa lucia' && r.nominatim_barangay !== 'Unknown' && r.nominatim_barangay !== 'Error');
+    res.json({ total_sample: sample.length, mismatch_count: mismatches.length, mismatches: mismatches.slice(0, 10), unique_nominatim_barangays: [...new Set(mismatches.map(m => m.nominatim_barangay))].sort() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/check-santa-lucia-centroids", requireAuth, async (req, res) => {
+  try {
+    const [demoCentroids] = await geoDB.query(`SELECT barangay_name, center_lat, center_lon FROM demographic_pasig WHERE LOWER(TRIM(barangay_name)) LIKE '%santa lucia%'`);
+    const [bizCoords] = await geoDB.query(`SELECT barangay, MIN(CAST(lat AS DECIMAL(10,7))) as minLat, MAX(CAST(lat AS DECIMAL(10,7))) as maxLat, MIN(CAST(lon AS DECIMAL(10,7))) as minLon, MAX(CAST(lon AS DECIMAL(10,7))) as maxLon, AVG(CAST(lat AS DECIMAL(10,7))) as avgLat, AVG(CAST(lon AS DECIMAL(10,7))) as avgLon, COUNT(*) as cnt FROM businesses WHERE LOWER(TRIM(barangay)) LIKE '%santa lucia%' AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 'null' AND lon <> 'null'`);
+    res.json({ demoCentroids, businessCoordinates: bizCoords, currentBounds: BARANGAY_BOUNDS['santa lucia'], currentCentroid: CENTROID_FALLBACK['santa lucia'] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/fix-barangay-names", requireAdmin, async (req, res) => {
+  try {
+    const results = [];
+    for (const [barangayName, bounds] of Object.entries(BARANGAY_BOUNDS)) {
+      const properName = barangayName.replace(/\b\w/g, c => c.toUpperCase());
+      const [updateResult] = await geoDB.query(
+        `UPDATE businesses SET barangay = ? WHERE CAST(lat AS DECIMAL(10,7)) >= ? AND CAST(lat AS DECIMAL(10,7)) <= ? AND CAST(lon AS DECIMAL(10,7)) >= ? AND CAST(lon AS DECIMAL(10,7)) <= ? AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 'null' AND lon <> 'null'`,
+        [properName, bounds.minLat, bounds.maxLat, bounds.minLon, bounds.maxLon]
+      );
+      results.push({ barangay: properName, bounds, businessesUpdated: updateResult.affectedRows });
+    }
+    const [unmatched] = await geoDB.query(
+      `SELECT COUNT(*) as cnt FROM businesses WHERE lat IS NOT NULL AND lon IS NOT NULL AND lat <> 'null' AND lon <> 'null' AND barangay NOT IN (?)`,
+      [Object.keys(BARANGAY_BOUNDS).map(b => b.replace(/\b\w/g, c => c.toUpperCase()))]
+    );
+    res.json({ success: true, message: 'Barangay names reassigned based on GPS coordinates', results, unmatchedBusinesses: unmatched[0].cnt });
+  } catch (err) {
+    console.error("fix-barangay-names error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get("/api/fix-outside-pasig", requireAdmin, async (req, res) => {
+  try {
+    const [result] = await geoDB.query(
+      `UPDATE businesses SET barangay = 'Outside Pasig' WHERE (CAST(lat AS DECIMAL(10,7)) < ? OR CAST(lat AS DECIMAL(10,7)) > ? OR CAST(lon AS DECIMAL(10,7)) < ? OR CAST(lon AS DECIMAL(10,7)) > ?) AND lat IS NOT NULL AND lon IS NOT NULL AND lat <> 'null' AND lon <> 'null'`,
+      [PASIG_BOUNDS.minLat, PASIG_BOUNDS.maxLat, PASIG_BOUNDS.minLon, PASIG_BOUNDS.maxLon]
+    );
+    res.json({ success: true, businessesMarkedOutside: result.affectedRows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get("/geo-test", async (req, res) => {
+  try { const [rows] = await geoDB.query("SELECT 1 AS test"); res.json(rows); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---------------
+// STATIC FILES
+// ---------------
 app.use(express.static(frontendPath));
 app.use("/dashboard", express.static(dashboardPath));
 app.use("/admin", express.static(adminDashboardPath));
 app.use("/admindashboard", express.static(adminDashboardPath));
 
-// ─── START SERVER ─────────────────────────────────────────────────────────────
+// ---------------
+// START SERVER
+// ---------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);

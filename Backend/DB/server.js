@@ -113,7 +113,11 @@ const reportRouteRateLimit = rateLimit({
   windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false
 });
 const resendVerificationRateLimit = rateLimit({
-  windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many resend attempts. Please try again later." }
 });
 const pendingVerifications = new Map();
 const pendingPasswordResets = new Map();
@@ -729,7 +733,7 @@ app.post("/resend-verification", resendVerificationRateLimit, async (req, res) =
     res.json({ success: true, message: "Verification code resent." });
   } catch (err) {
     console.error("Resend verification error:", err);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "An unexpected error occurred while resending verification email. Please try again."
     });

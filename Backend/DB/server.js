@@ -30,32 +30,45 @@ app.use(session({
 const frontendPath = path.join(__dirname, "login");
 const dashboardPath = path.join(__dirname, "..", "dashboard");
 const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER || "ballesterosyther1@gmail.com",
-    pass: process.env.EMAIL_PASS || "fsvq erkw plhi qwez"
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 20000
-});
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ Email transporter error:", error.message);
-    console.error("   Make sure EMAIL_USER and EMAIL_PASS env variables are set correctly.");
-  } else {
-    console.log("✅ Email transporter ready");
-  }
-});
+const emailUser = process.env.EMAIL_USER;
+const emailPass = process.env.EMAIL_PASS;
+const emailSenderName = process.env.EMAIL_SENDER_NAME || "SPOT";
+const transporter = (emailUser && emailPass)
+  ? nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: emailUser,
+      pass: emailPass
+    },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000
+  })
+  : null;
+if (transporter) {
+  transporter.verify((error, success) => {
+    if (error) {
+      console.error("❌ Email transporter error:", error.message);
+      console.error("   Make sure EMAIL_USER and EMAIL_PASS env variables are set correctly.");
+    } else {
+      console.log("✅ Email transporter ready");
+    }
+  });
+} else {
+  console.warn("⚠️ Email sending disabled: EMAIL_USER and EMAIL_PASS are not configured.");
+}
 
 async function sendVerificationCode(email, username, code) {
   console.log(`Attempting to send email to: ${email}`);
   console.log(`Verification code: ${code}`);
 
   try {
+    if (!transporter) {
+      console.warn("Cannot send email: EMAIL_USER and EMAIL_PASS are not configured.");
+      return false;
+    }
     const info = await transporter.sendMail({
-      from: `"EduHub" <${process.env.EMAIL_USER || "ballesterosyther1@gmail.com"}>`,
+      from: `"${emailSenderName}" <${emailUser}>`,
       to: email,
       subject: "Email Verification Code",
       html: `<p>Hello ${username},</p>
@@ -85,6 +98,13 @@ function requireAdminPage(req, res, next) {
   if (!req.session.user) return res.redirect("/");
   if (req.session.user.role !== "admin") return res.redirect("/dashboard");
   next();
+}
+function getAdminReportPaging(req) {
+  const rawLimit = parseInt(req.query.limit, 10);
+  const rawOffset = parseInt(req.query.offset, 10);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 500) : 500;
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+  return { limit, offset };
 }
 const debugRouteRateLimit = rateLimit({
   windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false
@@ -900,6 +920,60 @@ app.get("/api/admin/test-report-tables", requireAdmin, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/admin/report/search-pins", reportRouteRateLimit, requireAdmin, async (req, res) => {
+  try {
+    const { limit, offset } = getAdminReportPaging(req);
+    console.info("Admin report access: search-pins", { adminId: req.session.user.id, limit, offset });
+    const [rows] = await legendDB.query(
+      `SELECT h.user_id, u.fullname, u.username, h.query, h.source, h.is_pinned, h.lat, h.lon, h.created_at
+       FROM search_pin_history h
+       LEFT JOIN users u ON u.id = h.user_id
+       ORDER BY h.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get("/api/admin/report/recommendations", reportRouteRateLimit, requireAdmin, async (req, res) => {
+  try {
+    const { limit, offset } = getAdminReportPaging(req);
+    console.info("Admin report access: recommendations", { adminId: req.session.user.id, limit, offset });
+    const [rows] = await legendDB.query(
+      `SELECT h.user_id, u.fullname, u.username, h.recommended_item_id, h.source, h.lat, h.lon, h.created_at
+       FROM recommendation_history h
+       LEFT JOIN users u ON u.id = h.user_id
+       ORDER BY h.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get("/api/admin/report/saved", reportRouteRateLimit, requireAdmin, async (req, res) => {
+  try {
+    const { limit, offset } = getAdminReportPaging(req);
+    console.info("Admin report access: saved", { adminId: req.session.user.id, limit, offset });
+    const [rows] = await legendDB.query(
+      `SELECT h.user_id, u.fullname, u.username, h.business_type, h.barangay, h.lat, h.lon, h.saved_at, h.was_removed
+       FROM saved_history h
+       LEFT JOIN users u ON u.id = h.user_id
+       ORDER BY h.saved_at DESC
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

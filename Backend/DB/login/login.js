@@ -262,7 +262,7 @@ async function register() {
       localStorage.setItem("tempUserId", data.tempUserId);
     }
 
-    const emailSent = data.emailSent === true;
+    const emailSent = !!data.emailSent;
 
     SwalFixed.fire({
       title: emailSent ? "Success" : "Warning",

@@ -729,7 +729,10 @@ app.post("/resend-verification", resendVerificationRateLimit, async (req, res) =
     res.json({ success: true, message: "Verification code resent." });
   } catch (err) {
     console.error("Resend verification error:", err);
-    return res.status(500).json({ success: false, message: "Failed to resend verification email. Please try again." });
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred while resending verification email. Please try again."
+    });
   }
 });
 app.post("/login", async (req, res) => {

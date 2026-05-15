@@ -64,7 +64,7 @@ async function sendVerificationCode(email, username, code) {
 
   try {
     if (!transporter) {
-      console.error("Email transporter not configured. Set EMAIL_USER and EMAIL_PASS.");
+      console.warn("Email transporter not configured. Set EMAIL_USER and EMAIL_PASS.");
       return false;
     }
     const info = await transporter.sendMail({
@@ -918,12 +918,18 @@ app.get("/api/admin/test-report-tables", requireAdmin, async (req, res) => {
 
 app.get("/api/admin/report/search-pins", reportRouteRateLimit, requireAdmin, async (req, res) => {
   try {
+    const rawLimit = parseInt(req.query.limit, 10);
+    const rawOffset = parseInt(req.query.offset, 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 500) : 500;
+    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+    console.info("Admin report access: search-pins", { adminId: req.session.user.id, limit, offset });
     const [rows] = await legendDB.query(
       `SELECT h.user_id, u.fullname, u.username, h.query, h.source, h.is_pinned, h.lat, h.lon, h.created_at
        FROM search_pin_history h
        LEFT JOIN users u ON u.id = h.user_id
        ORDER BY h.created_at DESC
-       LIMIT 500`
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
     );
     res.json({ success: true, data: rows });
   } catch (err) {
@@ -933,12 +939,18 @@ app.get("/api/admin/report/search-pins", reportRouteRateLimit, requireAdmin, asy
 
 app.get("/api/admin/report/recommendations", reportRouteRateLimit, requireAdmin, async (req, res) => {
   try {
+    const rawLimit = parseInt(req.query.limit, 10);
+    const rawOffset = parseInt(req.query.offset, 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 500) : 500;
+    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+    console.info("Admin report access: recommendations", { adminId: req.session.user.id, limit, offset });
     const [rows] = await legendDB.query(
       `SELECT h.user_id, u.fullname, u.username, h.recommended_item_id, h.source, h.lat, h.lon, h.created_at
        FROM recommendation_history h
        LEFT JOIN users u ON u.id = h.user_id
        ORDER BY h.created_at DESC
-       LIMIT 500`
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
     );
     res.json({ success: true, data: rows });
   } catch (err) {
@@ -948,12 +960,18 @@ app.get("/api/admin/report/recommendations", reportRouteRateLimit, requireAdmin,
 
 app.get("/api/admin/report/saved", reportRouteRateLimit, requireAdmin, async (req, res) => {
   try {
+    const rawLimit = parseInt(req.query.limit, 10);
+    const rawOffset = parseInt(req.query.offset, 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 500) : 500;
+    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+    console.info("Admin report access: saved", { adminId: req.session.user.id, limit, offset });
     const [rows] = await legendDB.query(
       `SELECT h.user_id, u.fullname, u.username, h.business_type, h.barangay, h.lat, h.lon, h.saved_at, h.was_removed
        FROM saved_history h
        LEFT JOIN users u ON u.id = h.user_id
        ORDER BY h.saved_at DESC
-       LIMIT 500`
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
     );
     res.json({ success: true, data: rows });
   } catch (err) {

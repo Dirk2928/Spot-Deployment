@@ -1469,6 +1469,15 @@ function toggleSavedCard(id, btn) {
   arrow.classList.toggle('rotated', !isOpen);
 }
 
+function toggleCollapse(section) {
+  const body = document.getElementById(`${section}-body`);
+  const arrow = document.getElementById(`${section}-arrow`);
+  if (!body || !arrow) return;
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  arrow.classList.toggle('rotated', !isOpen);
+}
+
 function promptUnsaveLocation(id) {
   const loc = savedLocations.find(l => l.id === id);
   if (!loc) return;

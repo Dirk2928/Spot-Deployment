@@ -684,14 +684,14 @@ app.post("/register", async (req, res) => {
 });
 app.post("/verify-code", async (req, res) => {
   try {
-    const { tempUserId, code } = req.body;
+    const { tempUserId, code: rawCode } = req.body;
     const data = pendingVerifications.get(tempUserId);
     if (!data) return res.status(400).json({ success: false, message: "Invalid temp ID" });
     if (new Date() > new Date(data.codeExpiresAt)) {
       pendingVerifications.delete(tempUserId);
       return res.status(400).json({ success: false, message: "Code expired" });
     }
-    const trimmedCode = String(code).trim();
+    const trimmedCode = String(rawCode).trim();
     if (data.code !== trimmedCode) return res.status(400).json({ success: false, message: "Invalid code" });
 
     await legendDB.query(
@@ -726,7 +726,7 @@ app.post("/resend-verification", resendVerificationRateLimit, async (req, res) =
       return res.status(500).json({ success: false, message: "Failed to resend verification email. Please try again." });
     }
 
-    return res.json({ success: true, message: "Verification code resent." });
+    res.json({ success: true, message: "Verification code resent." });
   } catch (err) {
     console.error("Resend verification error:", err);
     return res.status(500).json({ success: false, message: "Failed to resend verification email. Please try again." });

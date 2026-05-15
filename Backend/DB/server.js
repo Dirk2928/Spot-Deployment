@@ -64,7 +64,7 @@ async function sendVerificationCode(email, username, code) {
 
   try {
     if (!transporter) {
-      console.warn("Email transporter not configured. Set EMAIL_USER and EMAIL_PASS.");
+      console.warn("Cannot send email: EMAIL_USER and EMAIL_PASS environment variables are not configured.");
       return false;
     }
     const info = await transporter.sendMail({
@@ -98,6 +98,13 @@ function requireAdminPage(req, res, next) {
   if (!req.session.user) return res.redirect("/");
   if (req.session.user.role !== "admin") return res.redirect("/dashboard");
   next();
+}
+function getAdminReportPaging(req) {
+  const rawLimit = parseInt(req.query.limit, 10);
+  const rawOffset = parseInt(req.query.offset, 10);
+  const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 500) : 500;
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+  return { limit, offset };
 }
 const debugRouteRateLimit = rateLimit({
   windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false
@@ -918,10 +925,7 @@ app.get("/api/admin/test-report-tables", requireAdmin, async (req, res) => {
 
 app.get("/api/admin/report/search-pins", reportRouteRateLimit, requireAdmin, async (req, res) => {
   try {
-    const rawLimit = parseInt(req.query.limit, 10);
-    const rawOffset = parseInt(req.query.offset, 10);
-    const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 500) : 500;
-    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+    const { limit, offset } = getAdminReportPaging(req);
     console.info("Admin report access: search-pins", { adminId: req.session.user.id, limit, offset });
     const [rows] = await legendDB.query(
       `SELECT h.user_id, u.fullname, u.username, h.query, h.source, h.is_pinned, h.lat, h.lon, h.created_at
@@ -939,10 +943,7 @@ app.get("/api/admin/report/search-pins", reportRouteRateLimit, requireAdmin, asy
 
 app.get("/api/admin/report/recommendations", reportRouteRateLimit, requireAdmin, async (req, res) => {
   try {
-    const rawLimit = parseInt(req.query.limit, 10);
-    const rawOffset = parseInt(req.query.offset, 10);
-    const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 500) : 500;
-    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+    const { limit, offset } = getAdminReportPaging(req);
     console.info("Admin report access: recommendations", { adminId: req.session.user.id, limit, offset });
     const [rows] = await legendDB.query(
       `SELECT h.user_id, u.fullname, u.username, h.recommended_item_id, h.source, h.lat, h.lon, h.created_at
@@ -960,10 +961,7 @@ app.get("/api/admin/report/recommendations", reportRouteRateLimit, requireAdmin,
 
 app.get("/api/admin/report/saved", reportRouteRateLimit, requireAdmin, async (req, res) => {
   try {
-    const rawLimit = parseInt(req.query.limit, 10);
-    const rawOffset = parseInt(req.query.offset, 10);
-    const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 500) : 500;
-    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+    const { limit, offset } = getAdminReportPaging(req);
     console.info("Admin report access: saved", { adminId: req.session.user.id, limit, offset });
     const [rows] = await legendDB.query(
       `SELECT h.user_id, u.fullname, u.username, h.business_type, h.barangay, h.lat, h.lon, h.saved_at, h.was_removed

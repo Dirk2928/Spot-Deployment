@@ -24,7 +24,6 @@ df.columns = [
 
 df = df.fillna("")
 
-                 
 df.to_csv(
     "clean_no_header3.csv",
     index=False,

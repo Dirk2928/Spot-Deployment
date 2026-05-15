@@ -15,7 +15,6 @@ os.makedirs("models", exist_ok=True)
 for cat in CATEGORIES:
     df = build_feature_table(cat, radius_m=500, include_label=True)
 
-                      
     y = df["label"]
     X = df.drop(columns=["label", "barangay_name"])
 

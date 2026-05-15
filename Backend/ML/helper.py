@@ -44,7 +44,6 @@ def competitor_count_by_centroid(biz_df, category, centroids_df, radius_m=500):
         centroids_df["competitor_count"] = 0
         return centroids_df
 
-                              
     cat_coords = np.radians(cat_df[["lat","lon"]].values)
     tree = BallTree(cat_coords, metric="haversine")
 
@@ -59,21 +58,19 @@ def build_feature_table(category, radius_m=500, include_label=True):
     demo = fetch_demographics()
     biz  = fetch_businesses()
 
-                                   
     biz_counts = biz.groupby("barangay").size().reset_index(name="total_businesses")
     biz_counts.rename(columns={"barangay":"barangay_name"}, inplace=True)
 
-                                                     
     cat_counts = biz[biz["category"] == category].groupby("barangay").size().reset_index(name="label")
     cat_counts.rename(columns={"barangay":"barangay_name"}, inplace=True)
 
-                                  
     centroids = compute_barangay_centroids(biz)
     centroids = competitor_count_by_centroid(biz, category, centroids, radius_m=radius_m)
 
-                        
-    df = demo.merge(biz_counts, on="barangay_name", how="left")\
-             .merge(centroids, on="barangay_name", how="left")
+    df = (
+        demo.merge(biz_counts, on="barangay_name", how="left")
+        .merge(centroids, on="barangay_name", how="left")
+    )
 
     df["total_businesses"] = df["total_businesses"].fillna(0)
     df["competitor_count"] = df["competitor_count"].fillna(0)
@@ -82,10 +79,8 @@ def build_feature_table(category, radius_m=500, include_label=True):
         df = df.merge(cat_counts, on="barangay_name", how="left")
         df["label"] = df["label"].fillna(0)
 
-                                                  
     df["business_density"] = df["total_businesses"] / (df["population"] / 1000)
 
-                    
     df["gender_distribution"] = df["gender_distribution"].map({"Male":0, "Female":1}).fillna(0)
     df = pd.get_dummies(df, columns=["highest_age_group"], drop_first=False)
 

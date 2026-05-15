@@ -64,7 +64,7 @@ async function sendVerificationCode(email, username, code) {
 
   try {
     if (!transporter) {
-      console.warn("Cannot send email: EMAIL_USER and EMAIL_PASS environment variables are not configured.");
+      console.warn("Cannot send email: EMAIL_USER and EMAIL_PASS are not configured.");
       return false;
     }
     const info = await transporter.sendMail({
@@ -102,7 +102,7 @@ function requireAdminPage(req, res, next) {
 function getAdminReportPaging(req) {
   const rawLimit = parseInt(req.query.limit, 10);
   const rawOffset = parseInt(req.query.offset, 10);
-  const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 500) : 500;
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 500) : 500;
   const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
   return { limit, offset };
 }

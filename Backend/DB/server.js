@@ -30,33 +30,43 @@ app.use(session({
 const frontendPath = path.join(__dirname, "login");
 const dashboardPath = path.join(__dirname, "..", "dashboard");
 const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
-const emailUser = process.env.EMAIL_USER || "ballesterosyther1@gmail.com";
-const emailPass = process.env.EMAIL_PASS || "fsvq erkw plhi qwez";
+const emailUser = process.env.EMAIL_USER;
+const emailPass = process.env.EMAIL_PASS;
 const emailSenderName = process.env.EMAIL_SENDER_NAME || "SPOT";
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: emailUser,
-    pass: emailPass
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 20000
-});
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ Email transporter error:", error.message);
-    console.error("   Make sure EMAIL_USER and EMAIL_PASS env variables are set correctly.");
-  } else {
-    console.log("✅ Email transporter ready");
-  }
-});
+const transporter = (emailUser && emailPass)
+  ? nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: emailUser,
+      pass: emailPass
+    },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 20000
+  })
+  : null;
+if (transporter) {
+  transporter.verify((error, success) => {
+    if (error) {
+      console.error("❌ Email transporter error:", error.message);
+      console.error("   Make sure EMAIL_USER and EMAIL_PASS env variables are set correctly.");
+    } else {
+      console.log("✅ Email transporter ready");
+    }
+  });
+} else {
+  console.warn("⚠️ Email sending disabled: EMAIL_USER and EMAIL_PASS are not configured.");
+}
 
 async function sendVerificationCode(email, username, code) {
   console.log(`Attempting to send email to: ${email}`);
   console.log(`Verification code: ${code}`);
 
   try {
+    if (!transporter) {
+      console.error("Email transporter not configured. Set EMAIL_USER and EMAIL_PASS.");
+      return false;
+    }
     const info = await transporter.sendMail({
       from: `"${emailSenderName}" <${emailUser}>`,
       to: email,

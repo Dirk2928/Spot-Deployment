@@ -112,6 +112,13 @@ const debugRouteRateLimit = rateLimit({
 const reportRouteRateLimit = rateLimit({
   windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false
 });
+const resendVerificationRateLimit = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many resend attempts. Please try again later." }
+});
 const pendingVerifications = new Map();
 const pendingPasswordResets = new Map();
 const PASIG_BOUNDS = {
@@ -669,9 +676,10 @@ app.post("/register", async (req, res) => {
     res.json({
       success: true,
       tempUserId: tempId,
+      emailSent,
       message: emailSent
         ? "Verification code sent!"
-        : "Account created! Please contact support for verification."
+        : "We couldn't send your verification email yet. Please resend the code."
     });
   } catch (err) {
     console.error("Register error:", err);
@@ -680,14 +688,15 @@ app.post("/register", async (req, res) => {
 });
 app.post("/verify-code", async (req, res) => {
   try {
-    const { tempUserId, code } = req.body;
+    const { tempUserId, code: rawCode } = req.body;
     const data = pendingVerifications.get(tempUserId);
     if (!data) return res.status(400).json({ success: false, message: "Invalid temp ID" });
     if (new Date() > new Date(data.codeExpiresAt)) {
       pendingVerifications.delete(tempUserId);
       return res.status(400).json({ success: false, message: "Code expired" });
     }
-    if (data.code !== code) return res.status(400).json({ success: false, message: "Invalid code" });
+    const trimmedCode = String(rawCode).trim();
+    if (data.code !== trimmedCode) return res.status(400).json({ success: false, message: "Invalid code" });
 
     await legendDB.query(
       `INSERT INTO users (fullname, email, username, password, is_verified, verified_at, registered_at, affiliation, industry, industry_specific, role)
@@ -699,6 +708,35 @@ app.post("/verify-code", async (req, res) => {
   } catch (err) {
     console.error("Verify code error:", err);
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+app.post("/resend-verification", resendVerificationRateLimit, async (req, res) => {
+  try {
+    const { tempUserId } = req.body;
+    const data = pendingVerifications.get(tempUserId);
+    if (!data) return res.status(400).json({ success: false, message: "Session expired. Please register again." });
+
+    const code = generateVerificationCode();
+    const expiry = new Date();
+    expiry.setMinutes(expiry.getMinutes() + 10);
+
+    data.code = code;
+    data.codeExpiresAt = expiry;
+    pendingVerifications.set(tempUserId, data);
+
+    const emailSent = await sendVerificationCode(data.email, data.username, code);
+    if (!emailSent) {
+      console.warn("Resend verification email failed for:", data.email);
+      return res.status(500).json({ success: false, message: "Failed to resend verification email. Please try again." });
+    }
+
+    res.json({ success: true, message: "Verification code resent." });
+  } catch (err) {
+    console.error("Resend verification error:", err);
+    res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred while resending verification email. Please try again."
+    });
   }
 });
 app.post("/login", async (req, res) => {

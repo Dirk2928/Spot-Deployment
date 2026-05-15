@@ -258,12 +258,16 @@ async function register() {
   const data = await res.json();
 
   if (res.ok && data.success) {
-    localStorage.setItem("tempUserId", data.tempUserId);
+    if (data.tempUserId) {
+      localStorage.setItem("tempUserId", data.tempUserId);
+    }
+
+    const emailSent = data.emailSent;
 
     SwalFixed.fire({
-      title: "Success",
-      text: "Verification code sent",
-      icon: "success"
+      title: emailSent ? "Success" : "Warning",
+      text: data.message || (emailSent ? "Verification code sent" : "Verification email not sent yet."),
+      icon: emailSent ? "success" : "warning"
     });
 
     document.getElementById("register-form").style.display = "none";
@@ -326,11 +330,41 @@ async function verifyCode() {
 }
 
 async function resendVerificationCode() {
+  const tempUserId = localStorage.getItem("tempUserId");
+
+  if (!tempUserId) {
+    SwalFixed.fire({ title: "Error", text: "Session expired. Please register again.", icon: "error" });
+    showRegister();
+    return;
+  }
+
   SwalFixed.fire({
-    title: "Info",
-    text: "Please check your email for the verification code. If you don't see it, check your spam folder.",
-    icon: "info"
+    title: "Sending...",
+    allowOutsideClick: false,
+    didOpen: () => SwalFixed.showLoading()
   });
+
+  const res = await fetch("/resend-verification", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tempUserId })
+  });
+
+  const data = await res.json();
+
+  if (res.ok && data.success) {
+    SwalFixed.fire({
+      title: "Success",
+      text: data.message || "Verification code resent.",
+      icon: "success"
+    });
+  } else {
+    SwalFixed.fire({
+      title: "Error",
+      text: data.message || "Failed to resend verification code.",
+      icon: "error"
+    });
+  }
 }
 
 async function sendForgotCode() {

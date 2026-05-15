@@ -112,6 +112,9 @@ const debugRouteRateLimit = rateLimit({
 const reportRouteRateLimit = rateLimit({
   windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false
 });
+const resendVerificationRateLimit = rateLimit({
+  windowMs: 10 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false
+});
 const pendingVerifications = new Map();
 const pendingPasswordResets = new Map();
 const PASIG_BOUNDS = {
@@ -703,7 +706,7 @@ app.post("/verify-code", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-app.post("/resend-verification", async (req, res) => {
+app.post("/resend-verification", resendVerificationRateLimit, async (req, res) => {
   try {
     const { tempUserId } = req.body;
     const data = pendingVerifications.get(tempUserId);
@@ -726,7 +729,7 @@ app.post("/resend-verification", async (req, res) => {
     return res.json({ success: true, message: "Verification code resent." });
   } catch (err) {
     console.error("Resend verification error:", err);
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: "Failed to resend verification email. Please try again." });
   }
 });
 app.post("/login", async (req, res) => {

@@ -691,8 +691,8 @@ app.post("/verify-code", async (req, res) => {
       pendingVerifications.delete(tempUserId);
       return res.status(400).json({ success: false, message: "Code expired" });
     }
-    const normalizedCode = String(code).trim();
-    if (data.code !== normalizedCode) return res.status(400).json({ success: false, message: "Invalid code" });
+    const trimmedCode = String(code).trim();
+    if (data.code !== trimmedCode) return res.status(400).json({ success: false, message: "Invalid code" });
 
     await legendDB.query(
       `INSERT INTO users (fullname, email, username, password, is_verified, verified_at, registered_at, affiliation, industry, industry_specific, role)

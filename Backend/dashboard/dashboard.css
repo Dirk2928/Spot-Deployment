@@ -41,7 +41,7 @@ body {
 
 #map { width: 100vw; height: 100vh; }
 
-/* ═══════════════ SIDEBAR ═══════════════ */
+
 .sidebar {
   width: 70px;
   background: var(--sidebar-bg);
@@ -110,7 +110,7 @@ body {
   letter-spacing: 0.4px;
 }
 
-/* ═══════════════ SEARCH BAR ═══════════════ */
+
 .search-wrapper {
   position: absolute;
   top: 20px;
@@ -187,7 +187,7 @@ body {
   object-fit: contain;
 }
 
-/* ═══════════════ SEARCH HISTORY ═══════════════ */
+
 .search-history {
   display: none;
   background: var(--white);
@@ -248,7 +248,7 @@ body {
 
 .history-x:hover { opacity: 0.75; }
 
-/* ═══════════════ STREET VIEW ═══════════════ */
+
 #street-view {
   position: absolute;
   right: 20px;
@@ -286,7 +286,7 @@ body {
   border-color: rgba(229, 62, 62, 0.30);
 }
 
-/* ═══════════════ SLIDE PANELS ═══════════════ */
+
 .slide-panel {
   position: absolute;
   top: 0;
@@ -304,7 +304,7 @@ body {
 
 .slide-panel.open { left: 70px; }
 
-/* ── Panel Header ── */
+
 .panel-header-row {
   display: flex;
   align-items: center;
@@ -342,7 +342,7 @@ body {
   letter-spacing: -0.2px;
 }
 
-/* ═══════════════ SAVED PANEL ═══════════════ */
+
 .saved-panel-body {
   flex: 1;
   overflow-y: auto;
@@ -441,7 +441,7 @@ body {
   font-weight: 500;
 }
 
-/* ═══════════════ LOCATION PANEL ═══════════════ */
+
 .loc-panel-body {
   flex: 1;
   overflow-y: auto;
@@ -510,7 +510,7 @@ body {
   font-weight: 500;
 }
 
-/* ═══════════════ SAVE ROW ═══════════════ */
+
 .save-row {
   display: inline-flex;
   align-items: center;
@@ -554,7 +554,7 @@ body {
 
 .save-row.saved span { color: var(--navy); font-weight: 700; }
 
-/* ═══════════════ COLLAPSIBLE SECTIONS ═══════════════ */
+
 .collapsible-section { margin-top: 14px; }
 
 .collapsible-header {
@@ -624,7 +624,7 @@ body {
   font-weight: 500;
 }
 
-/* ═══════════════ FILTER PANEL ═══════════════ */
+
 .filter-panel-header {
   display: flex;
   align-items: center;
@@ -730,7 +730,7 @@ body {
   box-shadow: 0 6px 20px rgba(20, 58, 92, 0.34);
 }
 
-/* ═══════════════ PROFILE POPUP ═══════════════ */
+
 .profile-popup {
   display: none;
   position: absolute;
@@ -797,7 +797,7 @@ body {
   border-color: rgba(229, 62, 62, 0.30);
 }
 
-/* ═══════════════ MODALS ═══════════════ */
+
 .modal-overlay {
   display: none;
   position: fixed;
@@ -887,7 +887,7 @@ body {
   transform: translateY(-1px);
 }
 
-/* ═══════════════ TOASTS ═══════════════ */
+
 .pasig-toast {
   position: fixed;
   top: 20px;
@@ -912,7 +912,7 @@ body {
   transform: translateY(0);
 }
 
-/* ═══════════════ PIN RANGE ═══════════════ */
+
 .pin-range {
   position: fixed;
   top: 22px;
@@ -940,7 +940,7 @@ body {
 #pin-range { display: none; }
 #pin-range.show { display: block; }
 
-/* ═══════════════ LOC PANEL CURSOR RULES ═══════════════ */
+
 #loc-panel,
 #loc-panel * {
   cursor: default;
@@ -965,12 +965,10 @@ body {
   cursor: pointer;
 }
 
-/* ═══════════════ MISC ═══════════════ */
+
 .hidden { display: none !important; }
 
-/* ══════════════════════════════════════════════════════════════
-   SMART FILTER PERSONALIZATION STYLES
-   ══════════════════════════════════════════════════════════════ */
+
 
 .profile-tag {
   display: inline-flex;

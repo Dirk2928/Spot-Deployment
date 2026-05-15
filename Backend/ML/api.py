@@ -19,7 +19,7 @@ def load_model(cat_name):
 @app.get("/predict")
 def predict():
     category = request.args.get("category", "FOOD")
-    barangay = request.args.get("barangay")  # optional
+    barangay = request.args.get("barangay")            
     top_n    = int(request.args.get("top", 5))
     radius   = int(request.args.get("radius", 500))
 
@@ -31,7 +31,7 @@ def predict():
 
     df = build_feature_table(cat_name, radius_m=radius, include_label=False)
 
-    # keep only columns used in training
+                                        
     X = df[cols]
 
     df["score"] = model.predict(X)

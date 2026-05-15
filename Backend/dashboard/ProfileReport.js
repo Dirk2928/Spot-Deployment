@@ -12,8 +12,6 @@ function fmtTime(iso){
     return iso||''
   }
 }
-
-// Date filtering variables
 let currentDateFrom = null;
 let currentDateTo = null;
 let allSearchPins = [];
@@ -106,15 +104,11 @@ function clearDateFilter() {
   renderFilteredReports();
 }
 
-// ─── CSV EXPORT FUNCTIONS ────────────────────────────────────────────────────
-
 function updateExportPreview() {
   const exportSearch = document.getElementById('export-search')?.checked || false;
   const exportRecs = document.getElementById('export-recommendations')?.checked || false;
   const exportSaved = document.getElementById('export-saved')?.checked || false;
   const selectAll = document.getElementById('export-all')?.checked || false;
-  
-  // Handle "Select All" logic
   if (selectAll) {
     if (document.getElementById('export-search')) document.getElementById('export-search').checked = true;
     if (document.getElementById('export-recommendations')) document.getElementById('export-recommendations').checked = true;
@@ -180,8 +174,6 @@ function updateExportPreview() {
       if (noDataWarning) noDataWarning.style.display = 'block';
     }
   }
-  
-  // Enable/disable export button based on selection
   const confirmBtn = document.getElementById('confirm-export');
   if (confirmBtn) {
     if (totalCount === 0 || (!exportSearch && !exportRecs && !exportSaved)) {
@@ -246,13 +238,9 @@ function exportToCSV() {
   }
   
   const csvRows = [];
-  
-  // CSV Headers with better formatting
   csvRows.push(['Type', 'Timestamp', 'Location/Name', 'Latitude', 'Longitude', 'Details', 'Additional Info'].join(','));
   
   let totalExported = 0;
-  
-  // Add Search/Pin Records
   if (exportSearch) {
     const filtered = filterByDate(allSearchPins, from, to);
     filtered.forEach(item => {
@@ -268,8 +256,6 @@ function exportToCSV() {
       totalExported++;
     });
   }
-  
-  // Add Recommendation Records
   if (exportRecs) {
     const filtered = filterByDate(allRecommendations, from, to);
     filtered.forEach(item => {
@@ -285,8 +271,6 @@ function exportToCSV() {
       totalExported++;
     });
   }
-  
-  // Add Saved Records
   if (exportSaved) {
     const filtered = filterByDate(allSaved, from, to);
     filtered.forEach(item => {
@@ -316,8 +300,6 @@ function exportToCSV() {
     }
     return;
   }
-  
-  // Create CSV content with BOM for UTF-8
   const csvContent = csvRows.join('\n');
   const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -325,8 +307,6 @@ function exportToCSV() {
   
   const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
   let filename = `spot_report_${timestamp}`;
-  
-  // Add type indicators to filename
   const types = [];
   if (exportSearch) types.push('search');
   if (exportRecs) types.push('recommendations');
@@ -366,8 +346,6 @@ function exportToCSV() {
       allowOutsideClick: false
     });
   }
-  
-  // Close modal after successful export
   setTimeout(() => {
     const modal = document.getElementById('export-modal');
     if (modal) modal.classList.remove('open');
@@ -377,8 +355,6 @@ function exportToCSV() {
 function openExportModal() {
   const modal = document.getElementById('export-modal');
   if (!modal) return;
-  
-  // Reset selections
   const selectAllCheckbox = document.getElementById('export-all');
   const searchCheckbox = document.getElementById('export-search');
   const recsCheckbox = document.getElementById('export-recommendations');
@@ -609,8 +585,6 @@ async function renderReports(){
 }
 
 window.renderReports = renderReports;
-
-// CLEAR BUTTON
 const clearBtn = document.getElementById('clear-reports-btn');
 clearBtn?.addEventListener('click', async () => {
   try {
@@ -639,8 +613,6 @@ clearBtn?.addEventListener('click', async () => {
     });
   }
 });
-
-// Date filter event listeners
 document.addEventListener('DOMContentLoaded', () => {
   const fromInput = document.getElementById('filter-date-from');
   const toInput = document.getElementById('filter-date-to');
@@ -657,8 +629,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (closeModalBtn) closeModalBtn.addEventListener('click', closeExportModal);
   if (cancelExportBtn) cancelExportBtn.addEventListener('click', closeExportModal);
   if (confirmExportBtn) confirmExportBtn.addEventListener('click', exportToCSV);
-  
-  // Export modal checkbox listeners
   const exportSearch = document.getElementById('export-search');
   const exportRecs = document.getElementById('export-recommendations');
   const exportSaved = document.getElementById('export-saved');
@@ -672,8 +642,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (exportAll) exportAll.addEventListener('change', selectAllHistory);
   if (exportFrom) exportFrom.addEventListener('change', updateExportPreview);
   if (exportTo) exportTo.addEventListener('change', updateExportPreview);
-  
-  // Close modal on overlay click
   const modal = document.getElementById('export-modal');
   if (modal) {
     modal.addEventListener('click', (e) => {

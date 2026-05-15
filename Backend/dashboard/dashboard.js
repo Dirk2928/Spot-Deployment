@@ -21,18 +21,12 @@ let lastAppliedType = null;
 let isFilterApplied = false;
 let ideaPinsCache = new Map();
 const locSavedItems = new Set();
-
-// ─── ACTIVE IDEA STATE ────────────────────────────────────────────────────────
 let activeIdeaIdx = -1;
 let activeIdeaName = null;
 let activeIdeaBarangay = null;
 let activeIdeaPrefs = [];
-
-// Populated on DOMContentLoaded from /api/me
 let userIndustry = '';
 let userIndustrySpecific = '';
-
-// ─── BARANGAY BOUNDS FOR MAP ──────────────────────────────────────────────────
 const BARANGAY_BOUNDS_MAP = {
   'bagong ilog': { minLat: 14.5700, maxLat: 14.5780, minLon: 121.0820, maxLon: 121.0890 },
   'bagong katipunan': { minLat: 14.5740, maxLat: 14.5840, minLon: 121.0620, maxLon: 121.0730 },
@@ -63,8 +57,6 @@ const BARANGAY_BOUNDS_MAP = {
   'sumilang': { minLat: 14.5650, maxLat: 14.5800, minLon: 121.0760, maxLon: 121.0910 },
   'ugong': { minLat: 14.5730, maxLat: 14.5880, minLon: 121.0570, maxLon: 121.0690 },
 };
-
-// ─── INDUSTRY → FILTER CHECKBOX MAP ─────────────────────────────────────────
 const INDUSTRY_FILTER_MAP = {
   'food and beverages': 'f-food',
   'food & beverages': 'f-food',
@@ -132,8 +124,6 @@ const INDUSTRY_FILTER_MAP = {
   'general services': 'f-general',
   'general': 'f-general'
 };
-
-// ─── REPORT LOGGING ───────────────────────────────────────────────────────────
 function getReportStorageKey() {
   if (!currentUserId) return 'reportLogs_anonymous';
   return `reportLogs_${currentUserId}`;
@@ -281,8 +271,6 @@ async function reportLogSaved({ action, business_type, barangay, lat, lon }) {
     return false;
   }
 }
-
-// ─── MAP SETUP ───────────────────────────────────────────────────────────────
 let map;
 
 const PASIG_BOUNDS = {
@@ -400,8 +388,6 @@ function zoomToBarangay(barangayName) {
   }
   return false;
 }
-
-// ─── REPLOT ───────────────────────────────────────────────────────────────────
 async function replotFilteredPins() {
   if (!isFilterMode) return;
   if (activeIdeaIdx === -1 || !activeIdeaName) return;
@@ -486,8 +472,6 @@ function clearClickedMarker() {
 
 document.getElementById('close-saved-panel')?.addEventListener('click', () => savedPanel.classList.remove('open'));
 document.getElementById('close-loc-panel')?.addEventListener('click', () => locPanel.classList.remove('open'));
-
-// RESET FILTER BUTTON HANDLER
 document.getElementById('filter-btn')?.addEventListener('click', function (e) {
   e.stopPropagation();
   clearBusinessMarkers();
@@ -847,7 +831,6 @@ async function saveRowClickHandler(e) {
   const isCurrentlySaved = row.classList.contains('saved');
 
   if (isCurrentlySaved) {
-    // Find the saved location ID
     const savedLoc = savedLocations.find(l => l.businesses[0] === bizName && l.locationName === barangay);
     if (savedLoc && savedLoc.dbId) {
       await deleteSavedRecommendationFromDB(savedLoc.dbId);
@@ -865,8 +848,6 @@ async function saveRowClickHandler(e) {
     }
     return;
   }
-
-  // Save new recommendation
   try {
     const lat = currentClickLat || null;
     const lon = currentClickLng || null;
@@ -903,8 +884,6 @@ async function saveRowClickHandler(e) {
     console.error('Error saving:', err);
   }
 }
-
-// ─── RENDER IDEA LIST ─────────────────────────────────────────────────────────
 function renderIdeaList({ names, barangays, prefs, allowPins }) {
   if (typeof barangays === 'string') barangays = barangays ? [barangays] : null;
 
@@ -979,8 +958,6 @@ function renderIdeaList({ names, barangays, prefs, allowPins }) {
   });
 
   markSavedInCurrentList();
-
-  // Auto-select first item
   if (allowPins && activeIdeaIdx === -1) {
     const firstItem = listEl.querySelector('.rec-item');
     if (firstItem) {
@@ -990,8 +967,6 @@ function renderIdeaList({ names, barangays, prefs, allowPins }) {
     }
   }
 }
-
-// ─── RESOLVE CHIP IDEAS ───────────────────────────────────────────────────────
 async function resolveChipIdeas({ selectedChips, barangays, type, prefs }) {
   const barangayList = barangays && barangays.length ? barangays : [null];
   const primaryBarangay = barangayList[0] || null;
@@ -1197,8 +1172,6 @@ function showPasigToast(msg) {
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 2500);
 }
-
-// ─── VERIFIED BARANGAY CENTERS ────────────────────────────────────────────────
 const VERIFIED_BARANGAY_CENTERS = {
   'Bagong Ilog': [14.5740, 121.0860],
   'Bagong Katipunan': [14.5572, 121.0750],
@@ -1229,8 +1202,6 @@ const VERIFIED_BARANGAY_CENTERS = {
   'Sumilang': [14.5750, 121.0840],
   'Ugong': [14.5830, 121.0620]
 };
-
-// ─── HANDLE LOCATION SELECT ───────────────────────────────────────────────────
 async function handleLocationSelect(lat, lon, source = 'map') {
   hidePinRange();
   isFilterMode = false;
@@ -1315,7 +1286,6 @@ async function handleLocationSelect(lat, lon, source = 'map') {
     const city = addr.city || addr.municipality || '';
     if (city) displayName = `${nearestBarangay}, ${city}`;
   } catch {
-    // If Nominatim fails, just use barangay name
   }
 
   currentLocShortName = displayName;
@@ -1653,10 +1623,6 @@ function parseJumpTarget() {
     return { lat, lon, source: j?.source || 'report_jump' };
   } catch { return null; }
 }
-
-// ============================================================================
-// SMART FILTER PERSONALIZATION SYSTEM
-// ============================================================================
 
 const INDUSTRY_CHIP_MAP = {
   'food and beverages': {
@@ -1999,24 +1965,16 @@ document.getElementById('reset-filter-btn')?.addEventListener('click', () => {
   if (listEl) listEl.innerHTML = '';
   locPanel?.classList.remove('open');
 });
-
-// ─── DOM CONTENT LOADED ───────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   if (typeof L === 'undefined') {
     console.error('Leaflet not loaded! Ensure leaflet.css and leaflet.js are in <head> before this script.');
     return;
   }
-
-  // ── Initialize map inside DOMContentLoaded so #map is guaranteed to exist ──
   map = L.map('map').setView([14.5764, 121.0851], 15);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', maxZoom: 19
   }).addTo(map);
-
-  // Recalculate container size in case CSS layout wasn't fully applied yet
   setTimeout(() => map.invalidateSize(), 100);
-
-  // Attach map click handler here since map is now initialized
   map.on('click', async function (e) {
     hidePinRange();
     isFilterMode = false;

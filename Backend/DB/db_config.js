@@ -1,7 +1,5 @@
 const mysql = require("mysql2");
 require("dotenv").config();
-
-// Legend Database Pool (defaultdb on Aiven)
 const legendPool = mysql.createPool({
     host: process.env.DB_HOST,
     port: parseInt(process.env.DB_PORT),
@@ -12,8 +10,6 @@ const legendPool = mysql.createPool({
     waitForConnections: true,
     connectionLimit: 10
 });
-
-// Geocoding Database Pool (geocoding_db on Aiven)
 const geoPool = mysql.createPool({
     host: process.env.GEO_DB_HOST,
     port: parseInt(process.env.GEO_DB_PORT),

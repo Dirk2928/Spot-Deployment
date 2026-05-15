@@ -11,10 +11,6 @@ const fs = require("fs");
 const app = express();
 
 testConnection();
-
-// ---------------
-// TRUST PROXY - MUST be before session middleware for deployed environments
-// ---------------
 app.set('trust proxy', 1);
 
 app.use(express.json());
@@ -31,17 +27,9 @@ app.use(session({
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
-
-// ---------------
-// PATH CONFIGURATIONS
-// ---------------
 const frontendPath = path.join(__dirname, "login");
 const dashboardPath = path.join(__dirname, "..", "dashboard");
 const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
-
-// ---------------
-// EMAIL TRANSPORTER - with timeout settings and env variable support
-// ---------------
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -52,8 +40,6 @@ const transporter = nodemailer.createTransport({
   greetingTimeout: 10000,
   socketTimeout: 20000
 });
-
-// Verify email transporter on startup
 transporter.verify((error, success) => {
   if (error) {
     console.error("❌ Email transporter error:", error.message);
@@ -84,10 +70,6 @@ async function sendVerificationCode(email, username, code) {
     return false;
   }
 }
-
-// ---------------
-// MIDDLEWARE
-// ---------------
 function requireAuth(req, res, next) {
   if (!req.session.user) return res.status(401).json({ success: false, message: "Not authenticated" });
   next();
@@ -104,26 +86,14 @@ function requireAdminPage(req, res, next) {
   if (req.session.user.role !== "admin") return res.redirect("/dashboard");
   next();
 }
-
-// ---------------
-// RATE LIMITERS
-// ---------------
 const debugRouteRateLimit = rateLimit({
   windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false
 });
 const reportRouteRateLimit = rateLimit({
   windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false
 });
-
-// ---------------
-// IN-MEMORY STORES
-// ---------------
 const pendingVerifications = new Map();
 const pendingPasswordResets = new Map();
-
-// ---------------
-// CONSTANTS
-// ---------------
 const PASIG_BOUNDS = {
   minLat: 14.5350,
   maxLat: 14.6200,
@@ -221,10 +191,6 @@ const CATEGORY_ALIASES = {
   "manufacturing": "Manufacturing", "hr & manpower": "HR & Manpower",
   "hr and manpower": "HR & Manpower", "general services": "General Services"
 };
-
-// ---------------
-// HELPER FUNCTIONS
-// ---------------
 function generateVerificationCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -648,17 +614,9 @@ function getCategoryKeywords(category) {
   return CATEGORY_KEYWORDS[catLower] || [];
 }
 
-// =============================================
-// ROUTES
-// =============================================
-
 app.get("/", (req, res) => {
   res.sendFile(path.join(frontendPath, "login.html"));
 });
-
-// ---------------
-// REGISTER - with graceful email failure handling
-// ---------------
 app.post("/register", async (req, res) => {
   try {
     const { fullname, email, username, password, affiliation, industry, industry_specific } = req.body;
@@ -700,10 +658,6 @@ app.post("/register", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// VERIFY CODE
-// ---------------
 app.post("/verify-code", async (req, res) => {
   try {
     const { tempUserId, code } = req.body;
@@ -727,10 +681,6 @@ app.post("/verify-code", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// LOGIN
-// ---------------
 app.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -746,8 +696,6 @@ app.post("/login", async (req, res) => {
       affiliation: user.affiliation, industry: user.industry || '',
       industry_specific: user.industry_specific || '', role: user.role || "user"
     };
-
-    // Save the session explicitly before redirecting to avoid race conditions
     req.session.save((err) => {
       if (err) {
         console.error("Session save error:", err);
@@ -761,10 +709,6 @@ app.post("/login", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// FORGOT PASSWORD
-// ---------------
 app.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
@@ -822,10 +766,6 @@ app.post("/reset-password", async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// LOGOUT
-// ---------------
 app.get("/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) return res.status(500).json({ success: false });
@@ -839,10 +779,6 @@ app.post("/api/logout", (req, res) => {
     res.json({ success: true });
   });
 });
-
-// ---------------
-// DASHBOARD - with multi-path fallback
-// ---------------
 app.get("/dashboard", requireAuth, (req, res) => {
   const possiblePaths = [
     path.join(dashboardPath, "dashboard.html"),
@@ -873,10 +809,6 @@ app.get("/admin", requireAdminPage, (req, res) => {
 app.get("/admin/profile", requireAdminPage, (req, res) => {
   res.sendFile(path.join(adminDashboardPath, "admindb.html"));
 });
-
-// ---------------
-// AUTH & USER
-// ---------------
 app.get("/api/check-auth", (req, res) => {
   if (!req.session.user) return res.json({ authenticated: false });
   res.json({
@@ -947,10 +879,6 @@ app.post("/api/user-profile", requireAuth, async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// ADMIN ROUTES
-// ---------------
 app.get("/api/admin/test-report-tables", requireAdmin, async (req, res) => {
   try {
     const [tables] = await legendDB.query(`
@@ -1179,10 +1107,6 @@ app.delete("/api/admin/demographics/:id", requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// SMART CHIPS
-// ---------------
 app.get("/api/smart-chips", requireAuth, async (req, res) => {
   try {
     const { category = "", subcategory = "" } = req.query;
@@ -1286,10 +1210,6 @@ app.get("/api/smart-chips", requireAuth, async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// GEO / BARANGAY
-// ---------------
 app.get("/api/nearest-barangay", requireAuth, async (req, res) => {
   try {
     const { lat, lon } = req.query;
@@ -1338,10 +1258,6 @@ app.get("/api/area-demographics", requireAuth, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// SAVED RECOMMENDATIONS
-// ---------------
 app.get("/api/saved-recommendations", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
@@ -1396,10 +1312,6 @@ app.delete("/api/saved-recommendations/:id", requireAuth, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// IDEAS
-// ---------------
 app.get("/api/ideas", requireAuth, async (req, res) => {
   try {
     const { category, barangay, top = 3, prefs = "" } = req.query;
@@ -1785,10 +1697,6 @@ app.get("/api/idea-locations", requireAuth, async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// REPORT ROUTES
-// ---------------
 app.get("/api/report/history", reportRouteRateLimit, requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
@@ -1916,10 +1824,6 @@ app.post("/api/report/saved", requireAuth, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
-
-// ---------------
-// DEBUG / UTILITY ROUTES (admin/dev only)
-// ---------------
 app.get("/api/debug-paths", (req, res) => {
   res.json({
     frontendPath,
@@ -2065,18 +1969,10 @@ app.get("/geo-test", async (req, res) => {
   try { const [rows] = await geoDB.query("SELECT 1 AS test"); res.json(rows); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-// ---------------
-// STATIC FILES
-// ---------------
 app.use(express.static(frontendPath));
 app.use("/dashboard", express.static(dashboardPath));
 app.use("/admin", express.static(adminDashboardPath));
 app.use("/admindashboard", express.static(adminDashboardPath));
-
-// ---------------
-// START SERVER
-// ---------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);

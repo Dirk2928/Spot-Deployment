@@ -1460,13 +1460,23 @@ function focusSavedLocation(id) {
   map.setView([lat, lon], 16);
 }
 
-function toggleSavedCard(id, btn) {
-  const body = document.getElementById('saved-body-' + id);
-  const arrow = btn.querySelector('.collapsible-arrow');
+function toggleCollapsible(body, arrow) {
   if (!body || !arrow) return;
   const isOpen = body.classList.contains('open');
   body.classList.toggle('open', !isOpen);
   arrow.classList.toggle('rotated', !isOpen);
+}
+
+function toggleSavedCard(id, btn) {
+  const body = document.getElementById('saved-body-' + id);
+  const arrow = btn.querySelector('.collapsible-arrow');
+  toggleCollapsible(body, arrow);
+}
+
+function toggleCollapse(section) {
+  const body = document.getElementById(`${section}-body`);
+  const arrow = document.getElementById(`${section}-arrow`);
+  toggleCollapsible(body, arrow);
 }
 
 function promptUnsaveLocation(id) {

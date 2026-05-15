@@ -1,7 +1,4 @@
-/**
- * Admin Dashboard JavaScript
- * Handles all dynamic data fetching and CRUD operations
- */
+
 
 const API_BASE = '/api/admin';
 
@@ -10,9 +7,7 @@ let currentTable = 'businesses';
 let selectedRecord = null;
 let pendingDelete = null;
 let barangayList = [];
-
-// ─── REPORT FILTERS (multi-select) ───────────────────────────────────────────
-let reportTypeFilters = new Set(['search', 'recommendation', 'saved']); // all selected by default
+let reportTypeFilters = new Set(['search', 'recommendation', 'saved']);
 let reportUserFilter = 'all';
 let reportDateFrom = null;
 let reportDateTo = null;
@@ -59,8 +54,6 @@ function initNavTabs() {
         });
     });
 }
-
-// ─── LOAD ALL USERS ───────────────────────────────────────────────────────────
 async function loadAllUsers() {
     try {
         const res = await fetch('/api/admin/users');
@@ -126,8 +119,6 @@ function clearUserFilter() {
     if (chip) chip.classList.add('hidden');
     if (window._allReportRows) renderReportList(window._allReportRows);
 }
-
-// ─── MODERN DATE PICKER ───────────────────────────────────────────────────────
 function initModernDatePicker() {
     const container = document.getElementById('modern-date-picker');
     if (!container) return;
@@ -402,8 +393,6 @@ function injectDatePickerStyles() {
     `;
     document.head.appendChild(s);
 }
-
-// ─── REPORT MODULE ────────────────────────────────────────────────────────────
 async function loadReportHistory() {
     const listEl = document.getElementById('user-history-list');
     if (!listEl) return;
@@ -494,8 +483,6 @@ function renderReportList(rows) {
         `;
     }).join('');
 }
-
-// ─── ADVANCED CSV EXPORT ─────────────────────────────────────────────────────
 function initExportModal() {
     const exportBtn = document.getElementById('export-csv-btn');
     const closeBtn = document.getElementById('close-export-modal');
@@ -683,13 +670,9 @@ function exportToCSVAdvanced() {
 
     const allRows = window._allReportRows || [];
     const csvRows = [];
-
-    // CSV Headers
     csvRows.push(['Type', 'Timestamp', 'User', 'Username', 'User ID', 'Location/Name', 'Details'].join(','));
 
     let totalExported = 0;
-
-    // Add Search/Pin Records
     if (exportSearch) {
         const filtered = filterRowsByTypeAndDate(allRows, 'search', from, to);
         filtered.forEach(item => {
@@ -705,8 +688,6 @@ function exportToCSVAdvanced() {
             totalExported++;
         });
     }
-
-    // Add Recommendation Records
     if (exportRecs) {
         const filtered = filterRowsByTypeAndDate(allRows, 'recommendation', from, to);
         filtered.forEach(item => {
@@ -722,8 +703,6 @@ function exportToCSVAdvanced() {
             totalExported++;
         });
     }
-
-    // Add Saved Records
     if (exportSaved) {
         const filtered = filterRowsByTypeAndDate(allRows, 'saved', from, to);
         filtered.forEach(item => {
@@ -753,8 +732,6 @@ function exportToCSVAdvanced() {
         }
         return;
     }
-
-    // Create and download CSV
     const csvContent = csvRows.join('\n');
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -801,8 +778,6 @@ function exportToCSVAdvanced() {
 
     closeExportModal();
 }
-
-// ─── LEGACY CSV EXPORT (kept for compatibility) ───────────────────────────────
 function exportReportToCSV() {
     openExportModal();
 }
@@ -813,8 +788,6 @@ function formatDate(raw) {
     if (isNaN(d)) return raw;
     return d.toLocaleString('en-PH', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
 }
-
-// ─── STATS ────────────────────────────────────────────────────────────────────
 async function loadDashboardStats() {
     try {
         const response = await fetch(`${API_BASE}/stats`);
@@ -857,8 +830,6 @@ function updateChart(entrepreneurPct, aspiringPct, entrepreneurCount, aspiringCo
         }, 120);
     });
 }
-
-// ─── EVENT LISTENERS ──────────────────────────────────────────────────────────
 function initEventListeners() {
     document.getElementById('add-data-btn')?.addEventListener('click', () => openModal('add'));
     document.getElementById('edit-data-btn')?.addEventListener('click', () => openModal('edit'));
@@ -928,8 +899,6 @@ function updateTypeFilterUI() {
         }
     });
 }
-
-// ─── CRUD ─────────────────────────────────────────────────────────────────────
 function openModal(mode) {
     currentMode = mode;
     const modal = document.getElementById('crud-modal');
@@ -1154,8 +1123,6 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
-
-// Make functions available globally
 window.editRecord = editRecord;
 window.deleteRecord = deleteRecord;
 window.toggleDatePanel = toggleDatePanel;

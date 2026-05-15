@@ -25,9 +25,7 @@ function validatePassword(password) {
   };
 }
 
-/* =========================
-   FORM SWITCHING
-========================= */
+
 
 function showRegister() {
   document.getElementById("login-form").style.display = "none";
@@ -56,9 +54,7 @@ function showLogin() {
   document.getElementById("login-form").style.display = "block";
 }
 
-/* =========================
-   INDUSTRY HANDLING
-========================= */
+
 
 function handleAffiliationChange() {
   const affiliation = document.getElementById("affiliation").value;
@@ -130,9 +126,7 @@ function handleAspiringIndustryChange() {
   }
 }
 
-/* =========================
-   RECOMMENDATION CHECKBOX HANDLERS
-========================= */
+
 
 function handleEntrepreneurRecChange() {
   const checked = document.getElementById("entrepreneur-rec-checkbox").checked;
@@ -144,9 +138,7 @@ function handleAspiringRecChange() {
   document.getElementById("aspiring-rec-note").style.display = checked ? "none" : "block";
 }
 
-/* =========================
-   INDUSTRY VALUE RESOLVER
-========================= */
+
 
 function resolveIndustry() {
   const affiliation = document.getElementById("affiliation").value;
@@ -170,9 +162,7 @@ function resolveIndustry() {
   return "";
 }
 
-/* =========================
-   AUTH FUNCTIONS
-========================= */
+
 
 async function login() {
   const username = document.getElementById("login-username").value.trim();
@@ -404,7 +394,7 @@ async function verifyForgotCode() {
   const data = await res.json();
 
   if (res.ok && data.success) {
-    SwalFixed.close(); // ✅ close loading modal
+    SwalFixed.close();
     document.getElementById("forgot-verification-section").style.display = "none";
     document.getElementById("reset-password-section").style.display = "block";
   } else {

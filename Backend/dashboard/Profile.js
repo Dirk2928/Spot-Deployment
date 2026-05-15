@@ -30,8 +30,6 @@ function swalFire(opts) {
   return Promise.resolve();
 }
 
-// ─── LOAD ────────────────────────────────────────────────────────────────────
-
 async function loadUserData() {
   try {
     const response = await fetch('/api/user-profile', {
@@ -74,8 +72,6 @@ async function loadUserData() {
   }
 }
 
-// ─── ENABLE / DISABLE EDITING ────────────────────────────────────────────────
-
 function enableEditing() {
   isEditing = true;
 
@@ -115,8 +111,6 @@ function disableEditing() {
   saveBtn.style.display   = 'none';
   cancelBtn.style.display = 'none';
 }
-
-// ─── SAVE ────────────────────────────────────────────────────────────────────
 
 async function saveUserData() {
   try {
@@ -164,8 +158,6 @@ async function saveUserData() {
   }
 }
 
-// ─── CANCEL ──────────────────────────────────────────────────────────────────
-
 function cancelEditing() {
   fullnameInput.value             = originalData.fullname;
   emailInput.value                = originalData.email;
@@ -176,8 +168,6 @@ function cancelEditing() {
   passwordInput.value             = '';
   disableEditing();
 }
-
-// ─── NAV ─────────────────────────────────────────────────────────────────────
 
 function showSection(which) {
   if (which === 'reports') {
@@ -195,8 +185,6 @@ function showSection(which) {
     pageTitle.textContent = 'My Profile';
   }
 }
-
-// ─── EVENTS ──────────────────────────────────────────────────────────────────
 
 editBtn?.addEventListener('click', enableEditing);
 saveBtn?.addEventListener('click', saveUserData);

@@ -26,7 +26,7 @@ body.swal2-shown {
   position: fixed !important;
 }
 
-/* ═══════════════ LEFT PANEL ═══════════════ */
+
 .left {
   width: 55%;
   padding: 40px 60px;
@@ -80,7 +80,7 @@ h1 {
   font-weight: 400;
 }
 
-/* ═══════════════ RIGHT PANEL ═══════════════ */
+
 .right {
   width: 45%;
   background-color: #f5f7fa;
@@ -94,7 +94,7 @@ h1 {
   box-shadow: -4px 0 30px rgba(0, 0, 0, 0.15);
 }
 
-/* ═══════════════ FORM BOX ═══════════════ */
+
 .form-box {
   width: 380px;
   max-height: 88vh;
@@ -356,7 +356,7 @@ button:disabled {
   text-decoration: underline;
 }
 
-/* ═══════════════ PASSWORD REQUIREMENTS ═══════════════ */
+
 .password-requirements {
   display: block;
   margin-top: -8px;
@@ -377,7 +377,7 @@ button:disabled {
   letter-spacing: 0;
 }
 
-/* ═══════════════ INPUT ERROR ═══════════════ */
+
 input.input-error {
   border: 1.5px solid #e53e3e !important;
   background-color: #fff5f5 !important;
@@ -399,7 +399,7 @@ input.input-error {
   font-weight: 500;
 }
 
-/* ═══════════════ RECOMMENDATION CHECKBOX ═══════════════ */
+
 .recommendation-checkbox-div {
   margin-top: 10px;
   margin-bottom: 6px;
@@ -447,7 +447,7 @@ p {
   color: #4a7090;
 }
 
-/* ═══════════════ RESPONSIVE ═══════════════ */
+
 @media (max-width: 900px) {
   .left {
     width: 50%;

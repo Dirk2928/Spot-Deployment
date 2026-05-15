@@ -1,5 +1,5 @@
 :root {
-  /* ── Original brand colors ── */
+  
   --navy:          #143a5c;
   --navy-mid:      #1e5080;
   --navy-light:    #2b6498;
@@ -7,7 +7,7 @@
   --card-bg:       #e2eff9;
   --page-bg:       #f5f7fa;
 
-  /* ── Derived / UI tones ── */
+  
   --white:         #ffffff;
   --border:        rgba(20, 58, 92, 0.15);
   --border-mid:    rgba(20, 58, 92, 0.22);
@@ -16,21 +16,21 @@
   --text-muted:    #4a7090;
   --text-faint:    #7fa8c4;
 
-  /* ── Feedback ── */
+  
   --danger:        #e53e3e;
   --danger-soft:   #fff5f5;
   --warning:       #d69e2e;
   --warning-soft:  #fffff0;
   --success:       #276749;
 
-  /* ── Geometry ── */
+  
   --sidebar-w:     260px;
   --radius-sm:     10px;
   --radius-md:     14px;
   --radius-lg:     18px;
   --radius-xl:     22px;
 
-  /* ── Shadows ── */
+  
   --shadow-sm:  0 2px 8px rgba(20, 58, 92, 0.08);
   --shadow-md:  0 4px 18px rgba(20, 58, 92, 0.12);
   --shadow-lg:  0 12px 40px rgba(20, 58, 92, 0.16);
@@ -39,7 +39,7 @@
   --transition: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ── RESET ── */
+
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 
@@ -53,17 +53,13 @@ body {
 
 .hidden { display: none !important; }
 
-/* ══════════════════════════════════════════════════════
-   LAYOUT
-   ══════════════════════════════════════════════════════ */
+
 .layout {
   display: flex;
   min-height: 100vh;
 }
 
-/* ══════════════════════════════════════════════════════
-   SIDEBAR
-   ══════════════════════════════════════════════════════ */
+
 .sidebar {
   width: var(--sidebar-w);
   background: var(--sidebar-bg);
@@ -78,7 +74,7 @@ body {
   box-shadow: 2px 0 16px rgba(20, 58, 92, 0.10);
 }
 
-/* Brand */
+
 .sidebar-brand {
   display: flex;
   align-items: center;
@@ -106,7 +102,7 @@ body {
   object-fit: contain;
 }
 
-/* Nav */
+
 .nav {
   display: flex;
   flex-direction: column;
@@ -148,7 +144,7 @@ body {
 
 .nav-item.active i { color: rgba(255,255,255,0.9); }
 
-/* Sidebar Bottom */
+
 .sidebar-bottom { margin-top: auto; }
 
 .logout-btn {
@@ -176,9 +172,7 @@ body {
   transform: translateY(-1px);
 }
 
-/* ══════════════════════════════════════════════════════
-   MAIN
-   ══════════════════════════════════════════════════════ */
+
 .main {
   flex: 1;
   padding: 44px 50px;
@@ -208,9 +202,7 @@ body {
   font-weight: 400;
 }
 
-/* ══════════════════════════════════════════════════════
-   CARD
-   ══════════════════════════════════════════════════════ */
+
 .card {
   background: var(--card-bg);
   border-radius: var(--radius-xl);
@@ -229,7 +221,7 @@ body {
 
 .profile-card, .reports-card { width: 100%; }
 
-/* Card Header */
+
 .card-header {
   display: flex;
   align-items: center;
@@ -267,9 +259,7 @@ body {
 
 .card-actions { display: flex; gap: 10px; align-items: center; }
 
-/* ══════════════════════════════════════════════════════
-   BUTTONS
-   ══════════════════════════════════════════════════════ */
+
 .edit-btn, .save-btn {
   display: inline-flex;
   align-items: center;
@@ -330,9 +320,7 @@ body {
   border-color: rgba(229, 62, 62, 0.30);
 }
 
-/* ══════════════════════════════════════════════════════
-   FORM
-   ══════════════════════════════════════════════════════ */
+
 .profile-form {
   display: flex;
   flex-direction: column;
@@ -361,7 +349,7 @@ body {
   text-transform: uppercase;
 }
 
-/* Input Wrapper */
+
 .input-wrapper {
   position: relative;
   display: flex;
@@ -416,7 +404,7 @@ body {
   background: var(--white);
 }
 
-/* Select arrow */
+
 .select-wrapper { position: relative; }
 
 .select-arrow {
@@ -434,7 +422,7 @@ body {
   padding-left: 2px;
 }
 
-/* Form Actions */
+
 .form-actions { display: flex; gap: 12px; margin-top: 4px; }
 
 .cancel-btn {
@@ -459,11 +447,9 @@ body {
   border-color: rgba(229, 62, 62, 0.30);
 }
 
-/* ══════════════════════════════════════════════════════
-   REPORT MODULE
-   ══════════════════════════════════════════════════════ */
 
-/* Date Filter Bar */
+
+
 .date-filter-bar {
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid var(--border);
@@ -553,7 +539,7 @@ body {
 
 .filter-stats.active { display: block; }
 
-/* Reports Grid */
+
 .reports-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -611,7 +597,7 @@ body {
   border: 1px solid rgba(20, 58, 92, 0.14);
 }
 
-/* Scrollable list */
+
 .report-list {
   max-height: 270px;
   overflow-y: auto;
@@ -623,7 +609,7 @@ body {
 .report-list::-webkit-scrollbar-track { background: transparent; }
 .report-list::-webkit-scrollbar-thumb { background: #aac4d8; border-radius: 10px; }
 
-/* Report Rows */
+
 .report-row {
   border: 1px solid rgba(20, 58, 92, 0.10);
   border-radius: var(--radius-sm);
@@ -688,7 +674,7 @@ body {
   font-size: 13px;
 }
 
-/* Export Button */
+
 .export-all-btn {
   display: inline-flex;
   align-items: center;
@@ -712,9 +698,7 @@ body {
   box-shadow: 0 6px 20px rgba(20, 58, 92, 0.34);
 }
 
-/* ══════════════════════════════════════════════════════
-   EXPORT MODAL
-   ══════════════════════════════════════════════════════ */
+
 .modal-overlay {
   display: none;
   position: fixed;
@@ -823,7 +807,7 @@ body {
   margin-bottom: 12px;
 }
 
-/* Checkboxes */
+
 .checkbox-group {
   display: flex;
   flex-direction: column;
@@ -914,7 +898,7 @@ body {
   color: var(--text-muted);
 }
 
-/* Date Range */
+
 .date-range-selectors {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -953,7 +937,7 @@ body {
   box-shadow: 0 0 0 3px rgba(20, 58, 92, 0.10);
 }
 
-/* Export Preview */
+
 .export-preview {
   background: rgba(226, 239, 249, 0.50);
   border-radius: var(--radius-sm);
@@ -1013,7 +997,7 @@ body {
   font-weight: 500;
 }
 
-/* Modal Footer */
+
 .export-modal-footer {
   display: flex;
   gap: 12px;
@@ -1074,9 +1058,7 @@ body {
   box-shadow: none;
 }
 
-/* ══════════════════════════════════════════════════════
-   RESPONSIVE
-   ══════════════════════════════════════════════════════ */
+
 @media (max-width: 1200px) {
   .reports-grid { grid-template-columns: 1fr; }
 }

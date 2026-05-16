@@ -35,7 +35,10 @@ const emailPass = process.env.EMAIL_PASS;
 const emailApiKey = process.env.EMAIL_API_KEY;
 const emailApiUser = process.env.EMAIL_API_USER || "apikey";
 const emailHost = process.env.EMAIL_HOST;
-const emailPort = process.env.EMAIL_PORT ? Number.parseInt(process.env.EMAIL_PORT, 10) : undefined;
+const parsedEmailPort = process.env.EMAIL_PORT ? Number.parseInt(process.env.EMAIL_PORT, 10) : undefined;
+const emailPort = Number.isFinite(parsedEmailPort) && parsedEmailPort > 0 && parsedEmailPort <= 65535
+  ? parsedEmailPort
+  : undefined;
 const hasEmailPort = Number.isFinite(emailPort);
 const hasSecureOverride = typeof process.env.EMAIL_SECURE === "string";
 const emailSecure = hasSecureOverride ? process.env.EMAIL_SECURE === "true" : undefined;
@@ -52,12 +55,13 @@ function buildTransportConfig() {
   if (emailApiKey) {
     const resolvedPort = hasEmailPort ? emailPort : 587;
     const resolvedSecure = hasSecureOverride ? emailSecure : resolvedPort === 465;
+    const apiUser = emailUser && emailUser.trim() ? emailUser : emailApiUser;
     return {
       host: emailHost || "smtp.sendgrid.net",
       port: resolvedPort,
       secure: resolvedSecure,
       auth: {
-        user: emailUser || emailApiUser,
+        user: apiUser,
         pass: emailApiKey
       },
       ...baseTimeouts
@@ -96,6 +100,10 @@ function buildTransportConfig() {
 
 const transporterConfig = buildTransportConfig();
 const transporter = transporterConfig ? nodemailer.createTransport(transporterConfig) : null;
+const canSendEmail = Boolean(transporter && emailFrom);
+if (transporter && !emailFrom) {
+  console.warn("⚠️ Email sending disabled: EMAIL_FROM or EMAIL_USER is required for the sender address.");
+}
 if (transporter) {
   transporter.verify((error, success) => {
     if (error) {
@@ -114,12 +122,8 @@ async function sendVerificationCode(email, username, code) {
   console.log(`Verification code: ${code}`);
 
   try {
-    if (!transporter) {
-      console.warn("Cannot send email: SMTP credentials are not configured.");
-      return false;
-    }
-    if (!emailFrom) {
-      console.warn("Cannot send email: EMAIL_FROM or EMAIL_USER is required for the sender address.");
+    if (!canSendEmail) {
+      console.warn("Cannot send email: SMTP credentials or sender address are not configured.");
       return false;
     }
     const info = await transporter.sendMail({

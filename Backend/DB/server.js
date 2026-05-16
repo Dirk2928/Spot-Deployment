@@ -61,7 +61,7 @@ function buildTransportConfig() {
   if (emailApiKey) {
     const resolvedPort = hasEmailPort ? emailPort : 587;
     const resolvedSecure = hasSecureOverride ? emailSecure : resolvedPort === 465;
-    const apiUser = emailUser && emailUser.trim() ? emailUser : emailApiUser;
+    const apiUser = emailUser || emailApiUser;
     return {
       host: emailHost || "smtp.sendgrid.net",
       port: resolvedPort,
@@ -130,7 +130,7 @@ async function sendVerificationCode(email, username, code) {
       return false;
     }
     if (!hasEmailFrom) {
-      console.warn("Cannot send email: EMAIL_FROM or EMAIL_USER is required for the sender address.");
+      console.warn("Cannot send email: EMAIL_FROM (or EMAIL_USER as fallback) is required for the sender address.");
       return false;
     }
     const info = await transporter.sendMail({

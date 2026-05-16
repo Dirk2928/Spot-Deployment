@@ -33,9 +33,9 @@ const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
 const emailUser = process.env.EMAIL_USER;
 const emailPass = process.env.EMAIL_PASS;
 const emailApiKey = process.env.EMAIL_API_KEY;
-const emailService = process.env.EMAIL_SERVICE || "gmail";
+const emailApiUser = process.env.EMAIL_API_USER || "apikey";
 const emailHost = process.env.EMAIL_HOST;
-const emailPort = Number.parseInt(process.env.EMAIL_PORT, 10);
+const emailPort = process.env.EMAIL_PORT ? Number.parseInt(process.env.EMAIL_PORT, 10) : undefined;
 const hasEmailPort = Number.isFinite(emailPort);
 const hasSecureOverride = typeof process.env.EMAIL_SECURE === "string";
 const emailSecure = hasSecureOverride ? process.env.EMAIL_SECURE === "true" : undefined;
@@ -57,7 +57,7 @@ function buildTransportConfig() {
       port: resolvedPort,
       secure: resolvedSecure,
       auth: {
-        user: emailUser || "apikey",
+        user: emailUser || emailApiUser,
         pass: emailApiKey
       },
       ...baseTimeouts
@@ -80,6 +80,7 @@ function buildTransportConfig() {
       };
     }
 
+    const emailService = process.env.EMAIL_SERVICE || "gmail";
     return {
       service: emailService,
       auth: {

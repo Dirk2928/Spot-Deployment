@@ -33,7 +33,7 @@ const dashboardPath = path.join(__dirname, "..", "dashboard");
 const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
 const resend = new Resend(process.env.RESEND_API_KEY);
 const emailSenderName = process.env.EMAIL_SENDER_NAME || "SPOT";
-const emailFrom = process.env.EMAIL_FROM || "dirk.maverick.cruz@gmail.com";
+const emailFrom = process.env.EMAIL_FROM || "onboarding@resend.dev";
 
 if (!process.env.RESEND_API_KEY) {
   console.warn("⚠️ RESEND_API_KEY is not set. Email sending will fail.");

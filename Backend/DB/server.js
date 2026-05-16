@@ -32,30 +32,80 @@ const dashboardPath = path.join(__dirname, "..", "dashboard");
 const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
 const emailUser = process.env.EMAIL_USER;
 const emailPass = process.env.EMAIL_PASS;
+const emailApiKey = process.env.EMAIL_API_KEY;
+const emailService = process.env.EMAIL_SERVICE || "gmail";
+const emailHost = process.env.EMAIL_HOST;
+const emailPort = Number.parseInt(process.env.EMAIL_PORT, 10);
+const hasEmailPort = Number.isFinite(emailPort);
+const hasSecureOverride = typeof process.env.EMAIL_SECURE === "string";
+const emailSecure = hasSecureOverride ? process.env.EMAIL_SECURE === "true" : undefined;
 const emailSenderName = process.env.EMAIL_SENDER_NAME || "SPOT";
-const transporter = (emailUser && emailPass)
-  ? nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: emailUser,
-      pass: emailPass
-    },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 20000
-  })
-  : null;
+const emailFrom = process.env.EMAIL_FROM || emailUser;
+
+const baseTimeouts = {
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 20000
+};
+
+function buildTransportConfig() {
+  if (emailApiKey) {
+    const resolvedPort = hasEmailPort ? emailPort : 587;
+    const resolvedSecure = hasSecureOverride ? emailSecure : resolvedPort === 465;
+    return {
+      host: emailHost || "smtp.sendgrid.net",
+      port: resolvedPort,
+      secure: resolvedSecure,
+      auth: {
+        user: emailUser || "apikey",
+        pass: emailApiKey
+      },
+      ...baseTimeouts
+    };
+  }
+
+  if (emailUser && emailPass) {
+    if (emailHost || hasEmailPort) {
+      const resolvedPort = hasEmailPort ? emailPort : 587;
+      const resolvedSecure = hasSecureOverride ? emailSecure : resolvedPort === 465;
+      return {
+        host: emailHost || "smtp.gmail.com",
+        port: resolvedPort,
+        secure: resolvedSecure,
+        auth: {
+          user: emailUser,
+          pass: emailPass
+        },
+        ...baseTimeouts
+      };
+    }
+
+    return {
+      service: emailService,
+      auth: {
+        user: emailUser,
+        pass: emailPass
+      },
+      ...baseTimeouts
+    };
+  }
+
+  return null;
+}
+
+const transporterConfig = buildTransportConfig();
+const transporter = transporterConfig ? nodemailer.createTransport(transporterConfig) : null;
 if (transporter) {
   transporter.verify((error, success) => {
     if (error) {
       console.error("❌ Email transporter error:", error.message);
-      console.error("   Make sure EMAIL_USER and EMAIL_PASS env variables are set correctly.");
+      console.error("   Make sure SMTP credentials are set (EMAIL_USER + EMAIL_PASS or EMAIL_API_KEY).");
     } else {
       console.log("✅ Email transporter ready");
     }
   });
 } else {
-  console.warn("⚠️ Email sending disabled: EMAIL_USER and EMAIL_PASS are not configured.");
+  console.warn("⚠️ Email sending disabled: configure EMAIL_USER + EMAIL_PASS or EMAIL_API_KEY for SMTP.");
 }
 
 async function sendVerificationCode(email, username, code) {
@@ -64,11 +114,15 @@ async function sendVerificationCode(email, username, code) {
 
   try {
     if (!transporter) {
-      console.warn("Cannot send email: EMAIL_USER and EMAIL_PASS are not configured.");
+      console.warn("Cannot send email: SMTP credentials are not configured.");
+      return false;
+    }
+    if (!emailFrom) {
+      console.warn("Cannot send email: EMAIL_FROM or EMAIL_USER is required for the sender address.");
       return false;
     }
     const info = await transporter.sendMail({
-      from: `"${emailSenderName}" <${emailUser}>`,
+      from: `"${emailSenderName}" <${emailFrom}>`,
       to: email,
       subject: "Email Verification Code",
       html: `<p>Hello ${username},</p>

@@ -30,12 +30,18 @@ app.use(session({
 const frontendPath = path.join(__dirname, "login");
 const dashboardPath = path.join(__dirname, "..", "dashboard");
 const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
-const emailUser = process.env.EMAIL_USER ? process.env.EMAIL_USER.trim() : undefined;
-const emailPass = process.env.EMAIL_PASS;
-const emailApiKey = process.env.EMAIL_API_KEY;
-// "apikey" is the SMTP username required by SendGrid when authenticating with an API key.
-const emailApiUser = process.env.EMAIL_API_USER || "apikey";
-const emailHost = process.env.EMAIL_HOST;
+function readEnvValue(name) {
+  const value = process.env[name];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+const emailUser = readEnvValue("EMAIL_USER");
+const emailPass = readEnvValue("EMAIL_PASS");
+const emailApiKey = readEnvValue("EMAIL_API_KEY");
+const emailApiUser = readEnvValue("EMAIL_API_USER") || "apikey";
+const emailHost = readEnvValue("EMAIL_HOST");
 const emailPort = (() => {
   if (!process.env.EMAIL_PORT) return undefined;
   const parsedPort = Number.parseInt(process.env.EMAIL_PORT, 10);
@@ -48,8 +54,9 @@ const emailPort = (() => {
 const hasEmailPort = Number.isFinite(emailPort);
 const hasSecureOverride = typeof process.env.EMAIL_SECURE === "string";
 const emailSecure = hasSecureOverride ? process.env.EMAIL_SECURE === "true" : undefined;
-const emailSenderName = process.env.EMAIL_SENDER_NAME || "SPOT";
-const emailFrom = process.env.EMAIL_FROM || emailUser;
+const emailSenderName = readEnvValue("EMAIL_SENDER_NAME") || "SPOT";
+const usingApiKeyTransport = Boolean(emailApiKey);
+const emailFrom = readEnvValue("EMAIL_FROM") || (!usingApiKeyTransport ? emailUser : undefined);
 
 const baseTimeouts = {
   connectionTimeout: 10000,
@@ -57,24 +64,36 @@ const baseTimeouts = {
   socketTimeout: 20000
 };
 
+let emailConfigError = "";
+
+function failEmailConfig(message) {
+  emailConfigError = message;
+  return null;
+}
+
 function buildTransportConfig() {
   if (emailApiKey) {
+    if (!emailFrom) {
+      return failEmailConfig("EMAIL_FROM is required when EMAIL_API_KEY is set.");
+    }
     const resolvedPort = hasEmailPort ? emailPort : 587;
     const resolvedSecure = hasSecureOverride ? emailSecure : resolvedPort === 465;
-    const apiUser = emailUser || emailApiUser;
     return {
       host: emailHost || "smtp.sendgrid.net",
       port: resolvedPort,
       secure: resolvedSecure,
       auth: {
-        user: apiUser,
+        user: emailApiUser,
         pass: emailApiKey
       },
       ...baseTimeouts
     };
   }
 
-  if (emailUser && emailPass) {
+  if (emailUser || emailPass) {
+    if (!emailUser || !emailPass) {
+      return failEmailConfig("EMAIL_USER and EMAIL_PASS must both be set for password-based SMTP.");
+    }
     if (emailHost || hasEmailPort) {
       const resolvedPort = hasEmailPort ? emailPort : 587;
       const resolvedSecure = hasSecureOverride ? emailSecure : resolvedPort === 465;
@@ -90,7 +109,7 @@ function buildTransportConfig() {
       };
     }
 
-    const emailService = process.env.EMAIL_SERVICE || "gmail";
+    const emailService = readEnvValue("EMAIL_SERVICE") || "gmail";
     return {
       service: emailService,
       auth: {
@@ -101,23 +120,27 @@ function buildTransportConfig() {
     };
   }
 
-  return null;
+  return failEmailConfig("Set EMAIL_API_KEY with EMAIL_FROM for SendGrid or EMAIL_USER with EMAIL_PASS for SMTP.");
 }
 
 const transporterConfig = buildTransportConfig();
 const transporter = transporterConfig ? nodemailer.createTransport(transporterConfig) : null;
 const hasEmailFrom = Boolean(emailFrom);
 if (transporter) {
-  transporter.verify((error, success) => {
+  transporter.verify((error) => {
     if (error) {
       console.error("❌ Email transporter error:", error.message);
-      console.error("   Make sure SMTP credentials are set (EMAIL_USER + EMAIL_PASS or EMAIL_API_KEY).");
+      if (usingApiKeyTransport) {
+        console.error("   Check EMAIL_API_KEY, EMAIL_API_USER=apikey, and a verified EMAIL_FROM.");
+      } else {
+        console.error("   Check EMAIL_USER, EMAIL_PASS, and the optional SMTP host/port overrides.");
+      }
     } else {
       console.log("✅ Email transporter ready");
     }
   });
 } else {
-  console.warn("⚠️ Email sending disabled: configure EMAIL_USER + EMAIL_PASS or EMAIL_API_KEY for SMTP.");
+  console.warn(`⚠️ Email sending disabled: ${emailConfigError}`);
 }
 
 async function sendVerificationCode(email, username, code) {
@@ -126,11 +149,11 @@ async function sendVerificationCode(email, username, code) {
 
   try {
     if (!transporter) {
-      console.warn("Cannot send email: SMTP credentials are not configured.");
+      console.warn(`Cannot send email: ${emailConfigError}`);
       return false;
     }
     if (!hasEmailFrom) {
-      console.warn("Cannot send email: EMAIL_FROM (or EMAIL_USER as fallback) is required for the sender address.");
+      console.warn("Cannot send email: sender email is not configured.");
       return false;
     }
     const info = await transporter.sendMail({

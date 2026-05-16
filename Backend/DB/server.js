@@ -30,20 +30,22 @@ app.use(session({
 const frontendPath = path.join(__dirname, "login");
 const dashboardPath = path.join(__dirname, "..", "dashboard");
 const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
-const emailUser = process.env.EMAIL_USER;
+const emailUser = process.env.EMAIL_USER ? process.env.EMAIL_USER.trim() : undefined;
 const emailPass = process.env.EMAIL_PASS;
 const emailApiKey = process.env.EMAIL_API_KEY;
 // "apikey" is the SMTP username required by SendGrid when authenticating with an API key.
 const emailApiUser = process.env.EMAIL_API_USER || "apikey";
 const emailHost = process.env.EMAIL_HOST;
-const parsedEmailPort = process.env.EMAIL_PORT ? Number.parseInt(process.env.EMAIL_PORT, 10) : undefined;
-const emailPort = Number.isFinite(parsedEmailPort) && parsedEmailPort > 0 && parsedEmailPort <= 65535
-  ? parsedEmailPort
-  : undefined;
+const emailPort = (() => {
+  if (!process.env.EMAIL_PORT) return undefined;
+  const parsedPort = Number.parseInt(process.env.EMAIL_PORT, 10);
+  if (!Number.isFinite(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+    console.warn("⚠️ Invalid EMAIL_PORT provided. Expected a number between 1 and 65535.");
+    return undefined;
+  }
+  return parsedPort;
+})();
 const hasEmailPort = Number.isFinite(emailPort);
-if (process.env.EMAIL_PORT && !hasEmailPort) {
-  console.warn("⚠️ Invalid EMAIL_PORT provided. Expected a number between 1 and 65535.");
-}
 const hasSecureOverride = typeof process.env.EMAIL_SECURE === "string";
 const emailSecure = hasSecureOverride ? process.env.EMAIL_SECURE === "true" : undefined;
 const emailSenderName = process.env.EMAIL_SENDER_NAME || "SPOT";
@@ -105,9 +107,6 @@ function buildTransportConfig() {
 const transporterConfig = buildTransportConfig();
 const transporter = transporterConfig ? nodemailer.createTransport(transporterConfig) : null;
 const hasEmailFrom = Boolean(emailFrom);
-if (transporter && !hasEmailFrom) {
-  console.warn("⚠️ Email sending disabled: EMAIL_FROM or EMAIL_USER is required for the sender address.");
-}
 if (transporter) {
   transporter.verify((error, success) => {
     if (error) {

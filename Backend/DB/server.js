@@ -5,7 +5,7 @@ const path = require("path");
 const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
 const { legendDB, geoDB, testConnection } = require("./db_config");
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 const fs = require("fs");
 
 const app = express();
@@ -27,120 +27,18 @@ app.use(session({
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
+
 const frontendPath = path.join(__dirname, "login");
 const dashboardPath = path.join(__dirname, "..", "dashboard");
 const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
-function readEnvValue(name) {
-  const value = process.env[name];
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed || undefined;
-}
+const resend = new Resend(process.env.RESEND_API_KEY);
+const emailSenderName = process.env.EMAIL_SENDER_NAME || "SPOT";
+const emailFrom = process.env.EMAIL_FROM || "dirk.maverick.cruz@gmail.com";
 
-const emailUser = readEnvValue("EMAIL_USER");
-const emailPass = readEnvValue("EMAIL_PASS");
-const emailApiKey = readEnvValue("EMAIL_API_KEY");
-const emailApiUser = readEnvValue("EMAIL_API_USER") || "apikey";
-const emailHost = readEnvValue("EMAIL_HOST");
-const emailPort = (() => {
-  if (!process.env.EMAIL_PORT) return undefined;
-  const parsedPort = Number.parseInt(process.env.EMAIL_PORT, 10);
-  if (!Number.isFinite(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
-    console.warn("⚠️ Invalid EMAIL_PORT provided. Expected a number between 1 and 65535.");
-    return undefined;
-  }
-  return parsedPort;
-})();
-const hasEmailPort = Number.isFinite(emailPort);
-const hasSecureOverride = typeof process.env.EMAIL_SECURE === "string";
-const emailSecure = hasSecureOverride ? process.env.EMAIL_SECURE === "true" : undefined;
-const emailSenderName = readEnvValue("EMAIL_SENDER_NAME") || "SPOT";
-const usingApiKeyTransport = Boolean(emailApiKey);
-const emailFrom = readEnvValue("EMAIL_FROM") || (!usingApiKeyTransport ? emailUser : undefined);
-
-const baseTimeouts = {
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 20000
-};
-
-let emailConfigError = "";
-
-function failEmailConfig(message) {
-  emailConfigError = message;
-  return null;
-}
-
-function buildTransportConfig() {
-  if (emailApiKey) {
-    if (!emailFrom) {
-      return failEmailConfig("EMAIL_FROM is required when EMAIL_API_KEY is set.");
-    }
-    const resolvedPort = hasEmailPort ? emailPort : 587;
-    const resolvedSecure = hasSecureOverride ? emailSecure : resolvedPort === 465;
-    return {
-      host: emailHost || "smtp.sendgrid.net",
-      port: resolvedPort,
-      secure: resolvedSecure,
-      auth: {
-        user: emailApiUser,
-        pass: emailApiKey
-      },
-      ...baseTimeouts
-    };
-  }
-
-  if (emailUser || emailPass) {
-    if (!emailUser || !emailPass) {
-      return failEmailConfig("EMAIL_USER and EMAIL_PASS must both be set for password-based SMTP.");
-    }
-    if (emailHost || hasEmailPort) {
-      const resolvedPort = hasEmailPort ? emailPort : 587;
-      const resolvedSecure = hasSecureOverride ? emailSecure : resolvedPort === 465;
-      return {
-        host: emailHost || "smtp.gmail.com",
-        port: resolvedPort,
-        secure: resolvedSecure,
-        auth: {
-          user: emailUser,
-          pass: emailPass
-        },
-        ...baseTimeouts
-      };
-    }
-
-    const emailService = readEnvValue("EMAIL_SERVICE") || "gmail";
-    return {
-      service: emailService,
-      auth: {
-        user: emailUser,
-        pass: emailPass
-      },
-      ...baseTimeouts
-    };
-  }
-
-  return failEmailConfig("Set EMAIL_API_KEY with EMAIL_FROM for SendGrid or EMAIL_USER with EMAIL_PASS for SMTP.");
-}
-
-const transporterConfig = buildTransportConfig();
-const transporter = transporterConfig ? nodemailer.createTransport(transporterConfig) : null;
-const hasEmailFrom = Boolean(emailFrom);
-if (transporter) {
-  transporter.verify((error) => {
-    if (error) {
-      console.error("❌ Email transporter error:", error.message);
-      if (usingApiKeyTransport) {
-        console.error("   Check EMAIL_API_KEY, EMAIL_API_USER=apikey, and a verified EMAIL_FROM.");
-      } else {
-        console.error("   Check EMAIL_USER, EMAIL_PASS, and the optional SMTP host/port overrides.");
-      }
-    } else {
-      console.log("✅ Email transporter ready");
-    }
-  });
+if (!process.env.RESEND_API_KEY) {
+  console.warn("⚠️ RESEND_API_KEY is not set. Email sending will fail.");
 } else {
-  console.warn(`⚠️ Email sending disabled: ${emailConfigError}`);
+  console.log("✅ Resend email configured");
 }
 
 async function sendVerificationCode(email, username, code) {
@@ -148,16 +46,8 @@ async function sendVerificationCode(email, username, code) {
   console.log(`Verification code: ${code}`);
 
   try {
-    if (!transporter) {
-      console.warn(`Cannot send email: ${emailConfigError}`);
-      return false;
-    }
-    if (!hasEmailFrom) {
-      console.warn("Cannot send email: sender email is not configured.");
-      return false;
-    }
-    const info = await transporter.sendMail({
-      from: `"${emailSenderName}" <${emailFrom}>`,
+    const { data, error } = await resend.emails.send({
+      from: `${emailSenderName} <${emailFrom}>`,
       to: email,
       subject: "Email Verification Code",
       html: `<p>Hello ${username},</p>
@@ -165,13 +55,21 @@ async function sendVerificationCode(email, username, code) {
              <p>This code expires in 10 minutes.</p>
              <p>Enter this code in the app to verify your account.</p>`
     });
-    console.log("Email sent successfully:", info.messageId);
+
+    if (error) {
+      console.error("Email sending failed:", error.message);
+      return false;
+    }
+
+    console.log("Email sent successfully:", data.id);
     return true;
   } catch (err) {
     console.error("Email sending failed:", err.message);
     return false;
   }
 }
+// ─────────────────────────────────────────────────────────────────────────────
+
 function requireAuth(req, res, next) {
   if (!req.session.user) return res.status(401).json({ success: false, message: "Not authenticated" });
   next();
@@ -188,6 +86,7 @@ function requireAdminPage(req, res, next) {
   if (req.session.user.role !== "admin") return res.redirect("/dashboard");
   next();
 }
+
 function getAdminReportPaging(req) {
   const rawLimit = parseInt(req.query.limit, 10);
   const rawOffset = parseInt(req.query.offset, 10);
@@ -195,6 +94,7 @@ function getAdminReportPaging(req) {
   const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
   return { limit, offset };
 }
+
 const debugRouteRateLimit = rateLimit({
   windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false
 });
@@ -208,8 +108,10 @@ const resendVerificationRateLimit = rateLimit({
   legacyHeaders: false,
   message: { success: false, message: "Too many resend attempts. Please try again later." }
 });
+
 const pendingVerifications = new Map();
 const pendingPasswordResets = new Map();
+
 const PASIG_BOUNDS = {
   minLat: 14.5350,
   maxLat: 14.6200,
@@ -307,6 +209,7 @@ const CATEGORY_ALIASES = {
   "manufacturing": "Manufacturing", "hr & manpower": "HR & Manpower",
   "hr and manpower": "HR & Manpower", "general services": "General Services"
 };
+
 function generateVerificationCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -733,6 +636,7 @@ function getCategoryKeywords(category) {
 app.get("/", (req, res) => {
   res.sendFile(path.join(frontendPath, "login.html"));
 });
+
 app.post("/register", async (req, res) => {
   try {
     const { fullname, email, username, password, affiliation, industry, industry_specific } = req.body;
@@ -775,6 +679,7 @@ app.post("/register", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.post("/verify-code", async (req, res) => {
   try {
     const { tempUserId, code: rawCode } = req.body;
@@ -799,6 +704,7 @@ app.post("/verify-code", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.post("/resend-verification", resendVerificationRateLimit, async (req, res) => {
   try {
     const { tempUserId } = req.body;
@@ -828,6 +734,7 @@ app.post("/resend-verification", resendVerificationRateLimit, async (req, res) =
     });
   }
 });
+
 app.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -856,6 +763,7 @@ app.post("/login", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
@@ -913,6 +821,7 @@ app.post("/reset-password", async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.get("/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) return res.status(500).json({ success: false });
@@ -926,6 +835,7 @@ app.post("/api/logout", (req, res) => {
     res.json({ success: true });
   });
 });
+
 app.get("/dashboard", requireAuth, (req, res) => {
   const possiblePaths = [
     path.join(dashboardPath, "dashboard.html"),
@@ -956,6 +866,7 @@ app.get("/admin", requireAdminPage, (req, res) => {
 app.get("/admin/profile", requireAdminPage, (req, res) => {
   res.sendFile(path.join(adminDashboardPath, "admindb.html"));
 });
+
 app.get("/api/check-auth", (req, res) => {
   if (!req.session.user) return res.json({ authenticated: false });
   res.json({
@@ -1026,6 +937,7 @@ app.post("/api/user-profile", requireAuth, async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.get("/api/admin/test-report-tables", requireAdmin, async (req, res) => {
   try {
     const [tables] = await legendDB.query(`
@@ -1308,6 +1220,7 @@ app.delete("/api/admin/demographics/:id", requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.get("/api/smart-chips", requireAuth, async (req, res) => {
   try {
     const { category = "", subcategory = "" } = req.query;
@@ -1411,6 +1324,7 @@ app.get("/api/smart-chips", requireAuth, async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.get("/api/nearest-barangay", requireAuth, async (req, res) => {
   try {
     const { lat, lon } = req.query;
@@ -1459,6 +1373,7 @@ app.get("/api/area-demographics", requireAuth, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.get("/api/saved-recommendations", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
@@ -1513,9 +1428,10 @@ app.delete("/api/saved-recommendations/:id", requireAuth, async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.get("/api/ideas", requireAuth, async (req, res) => {
   try {
-    const { category, barangay, top = 3, prefs = "" } = req.query;
+    const { category = "", barangay, top = 3, prefs = "" } = req.query;
     const prefList = prefs ? prefs.split(",").filter(Boolean) : [];
     const topN = parseInt(top) || 3;
 
@@ -1898,6 +1814,7 @@ app.get("/api/idea-locations", requireAuth, async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.get("/api/report/history", reportRouteRateLimit, requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
@@ -1970,7 +1887,6 @@ app.post("/api/report/search-pin", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
     const { query, source, lat, lon } = req.body;
-    console.log("Search-pin report:", { userId, query, source, lat, lon });
     const latValue = (lat && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
     const lonValue = (lon && !isNaN(parseFloat(lon))) ? parseFloat(lon) : null;
     const isPinned = (source === 'map_click' || source === 'drag') ? 1 : 0;
@@ -1978,7 +1894,6 @@ app.post("/api/report/search-pin", requireAuth, async (req, res) => {
       `INSERT INTO search_pin_history (user_id, query, pinned_item_id, pinned_item_type, is_pinned, source, lat, lon, created_at) VALUES (?, ?, NULL, 'location', ?, ?, ?, ?, NOW())`,
       [userId, query || null, isPinned, source || null, latValue, lonValue]
     );
-    console.log("Search-pin inserted, ID:", result.insertId);
     res.json({ success: true });
   } catch (err) {
     console.error("search-pin report error:", err);
@@ -1990,7 +1905,6 @@ app.post("/api/report/recommendation", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
     const { idea, area, lat, lon } = req.body;
-    console.log("Recommendation report:", { userId, idea, area, lat, lon });
     const latValue = (lat && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
     const lonValue = (lon && !isNaN(parseFloat(lon))) ? parseFloat(lon) : null;
     const ideaValue = idea ? idea.toString() : null;
@@ -1998,7 +1912,6 @@ app.post("/api/report/recommendation", requireAuth, async (req, res) => {
       `INSERT INTO recommendation_history (user_id, recommended_item_id, recommended_item_type, source, was_clicked, lat, lon, created_at) VALUES (?, ?, 'business_idea', ?, 1, ?, ?, NOW())`,
       [userId, ideaValue, area || null, latValue, lonValue]
     );
-    console.log("Recommendation inserted, ID:", result.insertId);
     res.json({ success: true });
   } catch (err) {
     console.error("recommendation report error:", err);
@@ -2010,7 +1923,6 @@ app.post("/api/report/saved", requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
     const { action, business_type, barangay, lat, lon } = req.body;
-    console.log("Saved report received:", { userId, action, business_type, barangay, lat, lon });
     const wasRemoved = action === 'removed' ? 1 : 0;
     const latValue = (lat && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
     const lonValue = (lon && !isNaN(parseFloat(lon))) ? parseFloat(lon) : null;
@@ -2018,19 +1930,16 @@ app.post("/api/report/saved", requireAuth, async (req, res) => {
       `INSERT INTO saved_history (user_id, business_type, barangay, suitability_score, lat, lon, saved_at, was_removed, removed_at) VALUES (?, ?, ?, NULL, ?, ?, NOW(), ?, ?)`,
       [userId, business_type || null, barangay || null, latValue, lonValue, wasRemoved, wasRemoved ? new Date() : null]
     );
-    console.log("Saved entry inserted, ID:", result.insertId);
     res.json({ success: true });
   } catch (err) {
     console.error("saved report error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
 app.get("/api/debug-paths", (req, res) => {
   res.json({
-    frontendPath,
-    dashboardPath,
-    adminDashboardPath,
-    __dirname,
+    frontendPath, dashboardPath, adminDashboardPath, __dirname,
     files: {
       loginExists: fs.existsSync(path.join(frontendPath, "login.html")),
       dashboardExists: fs.existsSync(path.join(dashboardPath, "dashboard.html")),
@@ -2102,9 +2011,7 @@ app.get("/api/test-idea-mapping", (req, res) => {
 
 app.get("/api/verify-barangay-names", requireAuth, async (req, res) => {
   try {
-    const [sample] = await geoDB.query(
-      `SELECT id, barangay as db_barangay, business_trade_name, lat, lon FROM businesses WHERE barangay = 'Santa Lucia' LIMIT 30`
-    );
+    const [sample] = await geoDB.query(`SELECT id, barangay as db_barangay, business_trade_name, lat, lon FROM businesses WHERE barangay = 'Santa Lucia' LIMIT 30`);
     const results = await Promise.all(sample.map(async (biz) => {
       try {
         const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${biz.lat}&lon=${biz.lon}&format=json`);
@@ -2170,10 +2077,12 @@ app.get("/geo-test", async (req, res) => {
   try { const [rows] = await geoDB.query("SELECT 1 AS test"); res.json(rows); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 app.use(express.static(frontendPath));
 app.use("/dashboard", express.static(dashboardPath));
 app.use("/admin", express.static(adminDashboardPath));
 app.use("/admindashboard", express.static(adminDashboardPath));
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);

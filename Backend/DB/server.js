@@ -33,6 +33,7 @@ const adminDashboardPath = path.join(__dirname, "..", "..", "admindashboard");
 const emailUser = process.env.EMAIL_USER;
 const emailPass = process.env.EMAIL_PASS;
 const emailApiKey = process.env.EMAIL_API_KEY;
+// "apikey" is the SMTP username required by SendGrid when authenticating with an API key.
 const emailApiUser = process.env.EMAIL_API_USER || "apikey";
 const emailHost = process.env.EMAIL_HOST;
 const parsedEmailPort = process.env.EMAIL_PORT ? Number.parseInt(process.env.EMAIL_PORT, 10) : undefined;
@@ -40,6 +41,9 @@ const emailPort = Number.isFinite(parsedEmailPort) && parsedEmailPort > 0 && par
   ? parsedEmailPort
   : undefined;
 const hasEmailPort = Number.isFinite(emailPort);
+if (process.env.EMAIL_PORT && !hasEmailPort) {
+  console.warn("⚠️ Invalid EMAIL_PORT provided. Expected a number between 1 and 65535.");
+}
 const hasSecureOverride = typeof process.env.EMAIL_SECURE === "string";
 const emailSecure = hasSecureOverride ? process.env.EMAIL_SECURE === "true" : undefined;
 const emailSenderName = process.env.EMAIL_SENDER_NAME || "SPOT";
@@ -100,8 +104,8 @@ function buildTransportConfig() {
 
 const transporterConfig = buildTransportConfig();
 const transporter = transporterConfig ? nodemailer.createTransport(transporterConfig) : null;
-const canSendEmail = Boolean(transporter && emailFrom);
-if (transporter && !emailFrom) {
+const hasEmailFrom = Boolean(emailFrom);
+if (transporter && !hasEmailFrom) {
   console.warn("⚠️ Email sending disabled: EMAIL_FROM or EMAIL_USER is required for the sender address.");
 }
 if (transporter) {
@@ -122,8 +126,12 @@ async function sendVerificationCode(email, username, code) {
   console.log(`Verification code: ${code}`);
 
   try {
-    if (!canSendEmail) {
-      console.warn("Cannot send email: SMTP credentials or sender address are not configured.");
+    if (!transporter) {
+      console.warn("Cannot send email: SMTP credentials are not configured.");
+      return false;
+    }
+    if (!hasEmailFrom) {
+      console.warn("Cannot send email: EMAIL_FROM or EMAIL_USER is required for the sender address.");
       return false;
     }
     const info = await transporter.sendMail({
